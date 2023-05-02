@@ -1,0 +1,7 @@
+basic:
+  name: "server"
+  port: 8086
+
+users:
+  client: { user: "client",token: "token" }
+

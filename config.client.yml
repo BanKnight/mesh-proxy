@@ -1,0 +1,31 @@
+basic:
+  name: "client"
+
+servers:
+  - name: server
+    url: "http://client:token@localhost:8086"
+    
+components:
+  - name: server/http
+    type: http
+    port: 8080
+    sites: 
+      www.test.com:
+        pass: client/channel
+
+  - name: client/channel
+    type: channel
+    show: true    
+    pass: client/tcp
+
+  - name: client/tcp
+    type: tcp
+    pass: 192.168.31.1:80
+
+  - name: client/http
+    type: web
+
+
+
+
+

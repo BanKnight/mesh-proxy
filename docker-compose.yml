@@ -1,0 +1,13 @@
+version: '3'
+services:
+  server:
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    image: mesh-proxy:latest
+    container_name: mesh-proxy
+    restart: always # 重启策略: 容器退出时总是重启容器
+    environment:
+      - TZ=Asia/Shanghai
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=4096
