@@ -73,7 +73,7 @@ export class Component extends EventEmitter {
         const tunnel = new Tunnel(id)
 
         tunnel.io = (event: string, ...args: any[]) => {
-            this.emit(`tunnel::${event}`, ...args)
+            this.node.emit(`tunnel::${event}`, ...args)
         }
 
         this.once("close", () => {

@@ -204,7 +204,7 @@ export class Application {
             this.pairs[tunnel.id] = revert
             this.pairs[revert.id] = tunnel
 
-            component.emit("connection", revert, destination, ...args)
+            component.emit("connection", revert, ...args)
             tunnel.emit("connect")
         })
 
@@ -523,7 +523,7 @@ export class Application {
     create_component(options: ComponentOption) {
         const class_ = this.components[options.type]
         if (class_ == null) {
-            return
+            throw new Error(`unsupported component type:${options.type} in ${options.name}`)
         }
         return new class_(options)
     }

@@ -80,10 +80,10 @@ export default class Tcp extends Component {
 
         this.on("connection", (tunnel: Tunnel, info: any, destination: any) => {
 
-            console.log("on connection", host, port)
-
-            const target_host = destination?.host || host
+            const target_host = destination?.address || host
             const target_port = destination?.port || port
+
+            console.log("on connection", target_host, target_port)
 
             if (target_host == null || target_port == null) {
                 tunnel.destroy(new Error(`unknown next pass in ${this.name}`))

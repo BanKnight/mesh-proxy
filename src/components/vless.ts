@@ -1,7 +1,7 @@
 import { stringify } from "uuid"
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
-export default class Socks5 extends Component {
+export default class Vless extends Component {
 
     users = new Set<string>()
 
@@ -14,7 +14,7 @@ export default class Socks5 extends Component {
     }
 
     ready() {
-        if (this.options.pass == null) {
+        if (this.options.passes == null) {
             this.emit("error", new Error("no pass defined in the options"))
         }
         for (const userid of this.options.users) {
@@ -35,10 +35,10 @@ export default class Socks5 extends Component {
 
             if (tunnel.pendings == null) {
                 tunnel.pendings = buffer
-                return
             }
-
-            buffer.copy(tunnel.pendings, tunnel.pendings.length)
+            else {
+                buffer.copy(tunnel.pendings, tunnel.pendings.length)
+            }
 
             if (tunnel.pendings.length < 24) {
                 return
