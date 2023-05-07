@@ -66,8 +66,6 @@ export class Component extends EventEmitter {
     destroy(error?: Error) {
         this.emit('close', error)
     }
-
-
     create_tunnel(id?: string) {
 
         const tunnel = new Tunnel(id)

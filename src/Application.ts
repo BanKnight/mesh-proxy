@@ -166,6 +166,8 @@ export class Application {
         const node = this.nodes[this.config.basic.name] = new Node()
         node.name = this.config.basic.name
 
+        node.setMaxListeners(Infinity)
+
         this.prepare_node(node)
     }
 
