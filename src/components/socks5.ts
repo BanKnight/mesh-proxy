@@ -17,12 +17,11 @@ export default class Socks5 extends Component {
     ready() {
 
         if (this.options.port) {
-            this.init_local()
+            this.listen()
         }
         else {
-            this.init_remote()
+            this.connect()
         }
-
     }
     close() {
 
@@ -34,7 +33,7 @@ export default class Socks5 extends Component {
         }
     }
 
-    init_local() {
+    listen() {
 
         const server = this.server = socks5.createServer()
 
@@ -44,7 +43,7 @@ export default class Socks5 extends Component {
 
             this.sockets[socket.id] = socket
 
-            const tunnel = this.node.create_tunnel()
+            const tunnel = this.create_tunnel()
 
             this.on_new_socket(socket, tunnel)
 
@@ -72,7 +71,7 @@ export default class Socks5 extends Component {
         this.server.listen(this.options.port)
     }
 
-    init_remote() {
+    connect() {
 
         this.on("connection", (tunnel: Tunnel, destination: any, origin: any) => {
 

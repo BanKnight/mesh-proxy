@@ -30,7 +30,7 @@ export default class Channel extends Component {
                 return
             }
 
-            const remote = this.node.create_tunnel()
+            const remote = this.create_tunnel()
 
             tunnel.pipe(remote)
             remote.pipe(tunnel)

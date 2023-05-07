@@ -3,5 +3,25 @@ basic:
   port: 8086
 
 users:
-  client: { user: "client",token: "token" }
+  client: { token: "token" }
+
+components:
+  - name: server/vless-port
+    type: websocket
+    port: 443
+    path: /donghuicheng
+    pass: server/vless
+
+  - name: server/vless
+    type: vless
+    passes:
+      tcp: server/tcp
+      udp: server/udp
+    users:
+      - donghuicheng
+
+  - name: server/vlesstcp
+    type: tcp
+  - name: server/vlessudp
+    type: udp
 

@@ -9,6 +9,7 @@ import { Duplex, Readable, Writable } from "stream";
 export interface ServerOption {
     name: string
     url: string
+    token: string
 }
 
 export interface UserOption {
@@ -18,7 +19,7 @@ export interface UserOption {
 
 export interface ComponentOption extends Record<string, any> {
     name: string;
-    component: string;
+    type: string;
 }
 
 export interface Config {
@@ -39,26 +40,6 @@ export class Node extends EventEmitter {
     url?: URL
     socket: ServerSocket | ClientSocket
     components: Record<string, Component> = {};  //[name] = compnent
-
-    create_tunnel(id?: string) {
-
-        const tunnel = new Tunnel(id)
-
-        tunnel.io = (event: string, ...args: any[]) => {
-            this.emit(`tunnel::${event}`, ...args)
-        }
-
-        this.once("close", () => {
-            tunnel.destroy(new Error("node closed"))
-        })
-
-        if (this.socket) {
-            this.socket.once("disconnect", () => {
-                tunnel.destroy(new Error("node closed"))
-            })
-        }
-        return tunnel
-    }
 
     send(event: string, ...args: any[]) {
         if (this.socket) {
@@ -85,6 +66,22 @@ export class Component extends EventEmitter {
     destroy(error?: Error) {
         this.emit('close', error)
     }
+
+
+    create_tunnel(id?: string) {
+
+        const tunnel = new Tunnel(id)
+
+        tunnel.io = (event: string, ...args: any[]) => {
+            this.emit(`tunnel::${event}`, ...args)
+        }
+
+        this.once("close", () => {
+            tunnel.destroy(new Error(`component[${this.name}] close`))
+        })
+
+        return tunnel
+    }
 }
 
 export class Tunnel extends Duplex {
@@ -96,15 +93,14 @@ export class Tunnel extends Duplex {
         super({})
         this.id = id || randomUUID();
     }
-    _read() {
-    }
+    _read() { }
     _write(chunk: any, encoding: any, callback: any) {
         this.io("write", this, chunk)
         callback();
     }
 
     send(event: string, ...args: any[]) {
-        this.io("event", this, event, ...args)
+        this.io("message", this, event, ...args)
     }
 
     connect(destination: string, ...args: any[]) {
@@ -142,6 +138,14 @@ export class Tunnel extends Duplex {
 
         this.io("end", this, chunk)
         return super.end(chunk)
+    }
+
+    on_message(event: string, listener: any) {
+        this.on(`message.${event}`, listener)
+    }
+
+    off_message(event: string, listener: any) {
+        this.off(`message.${event}`, listener)
     }
 
     close() {

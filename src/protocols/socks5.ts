@@ -35,8 +35,7 @@ const
     },
     RFC_1929_VERSION = 0x01
 
-export interface SocksOptions {
-}
+export interface SocksOptions { }
 
 class SocksServer {
 

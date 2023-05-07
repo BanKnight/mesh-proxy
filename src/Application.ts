@@ -97,9 +97,11 @@ export class Application {
         if (this.config.servers == null) {
             return
         }
+
         for (const one of this.config.servers) {
 
             const node = new Node()
+
             node.url = new URL(one.url)
             node.name = one.name
 
@@ -108,6 +110,12 @@ export class Application {
             });
 
             socket.on('connect', () => {
+
+                socket.emit("auth", {
+                    user: node.url?.username,
+                    token: node.url?.password
+                })
+
                 this.on_node_connected(node)
             });
 
@@ -186,7 +194,7 @@ export class Application {
                 return
             }
 
-            const revert = target.create_tunnel()
+            const revert = component.create_tunnel()
 
             console.log(this.name, "tunnel::revert", revert.id)
 
@@ -201,7 +209,7 @@ export class Application {
         })
 
         //本端发出事件
-        node.on("tunnel::event", (tunnel: Tunnel, event: string, ...args: any[]) => {
+        node.on("tunnel::message", (tunnel: Tunnel, event: string, ...args: any[]) => {
 
             if (tunnel.destination == null) {
                 let other = this.pairs[tunnel.id]
@@ -218,7 +226,7 @@ export class Application {
             }
 
             if (target.socket) {
-                target.socket.emit("tunnel::event", tunnel.id, event, ...args)
+                target.socket.emit("tunnel::message", tunnel.id, event, ...args)
                 return
             }
 
@@ -285,12 +293,10 @@ export class Application {
                 return
             }
 
-            if (tunnel.writable)
-
-                if (target.socket) {
-                    target.socket.emit("tunnel::end", tunnel.id, chunk)
-                    return
-                }
+            if (target.socket) {
+                target.socket.emit("tunnel::end", tunnel.id, chunk)
+                return
+            }
         })
         //本端发出destroy事件
         node.on("tunnel::destroy", (tunnel: Tunnel, error?: Error) => {
@@ -369,12 +375,15 @@ export class Application {
             component.emit("ready")
 
             const on_disconnect = () => {
+
                 node.socket.off("disconnect", on_disconnect)
-                delete that.components[component.name]
 
-                console.log("destroy component", options.name)
+                const exists = delete that.components[component.name]
 
-                component.destroy()
+                if (exists) {
+                    console.log(`node[${node.name}] disconnect`, "destroy component", options.name)
+                    component.destroy()
+                }
             }
 
             node.socket.on("disconnect", on_disconnect)
@@ -394,7 +403,7 @@ export class Application {
                 return
             }
 
-            const tunnel = that.create_tunnel(id)
+            const tunnel = component.create_tunnel(id)
 
             tunnel.destination = `${node.name}/?`
 
@@ -403,8 +412,9 @@ export class Application {
             component.emit("connection", tunnel, ...args)
             node.socket.emit("tunnel::connection", id)
 
+            //对端断开了，那么tunnel也要销毁
             node.socket.once("disconnect", () => {
-                tunnel.destroy()
+                tunnel.destroy(new Error(`remote node[${node.name}] disconnect`))
             })
         })
 
@@ -417,12 +427,12 @@ export class Application {
 
             tunnel.emit("connect")
         })
-        node.socket.on("tunnel::event", (id: string, event: string, ...args: any[]) => {
+        node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
                 return
             }
-            tunnel.emit(event, ...args)
+            tunnel.emit(`message.${event}`, ...args)
         })
         node.socket.on("tunnel::write", (id: string, chunk: any) => {
             const tunnel = this.tunnels[id]
@@ -500,11 +510,6 @@ export class Application {
         console.log(`${node.name} connected`)
 
         this.nodes[node.name] = node
-
-        node.socket.emit("auth", {
-            user: node.url?.username,
-            token: node.url?.password
-        })
 
         for (const component of this.config.components) {
             const names = component.name.split("/")

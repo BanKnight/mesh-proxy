@@ -57,8 +57,9 @@ export default class Http extends Component {
 
         console.log(`收到 HTTP 请求：${req.method} ${req.url}==>`, site);
 
+
         // 连接到远端服务器，并发起 HTTP 请求
-        const tunnel = this.node.create_tunnel()
+        const tunnel = this.create_tunnel()
 
         // 处理 socket 连接过程中的错误
         tunnel.on('error', (e: Error) => {
@@ -85,12 +86,12 @@ export default class Http extends Component {
             tunnel.destroy()
         });
 
-        tunnel.connect(site.pass, () => {
+        tunnel.connect(site.pass, { method: req.method, headers: req.headers }, () => {
 
-            // 组装 HTTP 请求头和正文
-            const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
-            // 将 HTTP 请求头和正文发送给远端服务器
-            tunnel.write(requestData);
+            // // 组装 HTTP 请求头和正文
+            // const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
+            // // 将 HTTP 请求头和正文发送给远端服务器
+            // tunnel.write(requestData);
 
             req.pipe(tunnel);
             tunnel.pipe(res);
@@ -120,7 +121,7 @@ export default class Http extends Component {
         this.wss.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket) => {
 
             // 连接到远端服务器，并发起 HTTP 请求
-            const tunnel = this.node.create_tunnel()
+            const tunnel = this.create_tunnel()
 
             tunnel.connect(site.pass, () => { })
 

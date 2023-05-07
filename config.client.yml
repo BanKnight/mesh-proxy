@@ -7,8 +7,22 @@ servers:
     
 components:
   - name: server/http
+    type: https
+    port: 443
+    sites: 
+      www.test.com:
+        cert: "cert"
+        key: "key"
+        locations:
+          /mesh:
+            pass: client/channel
+        
+      "*.mr-tutu.com":
+        pass:
+
+  - name: server/http
     type: http
-    port: 8080
+    connect: 8080
     sites: 
       www.test.com:
         pass: client/channel
@@ -16,7 +30,7 @@ components:
   - name: client/channel
     type: channel
     show: true    
-    pass: client/tcp
+    pass: server/hub 
 
   - name: client/tcp
     type: tcp
@@ -24,6 +38,16 @@ components:
 
   - name: client/http
     type: web
+    options: 
+      target: fsdfasdf
+
+  - name: client/vless
+    type: vless
+
+
+
+    
+      
 
 
 

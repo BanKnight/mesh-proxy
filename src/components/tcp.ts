@@ -47,11 +47,13 @@ export default class Tcp extends Component {
 
             this.sockets[socket.id] = socket
 
-            const tunnel = this.node.create_tunnel()
+            const tunnel = this.create_tunnel()
 
             this.on_new_socket(socket, tunnel)
 
-            tunnel.connect(this.options.pass)
+            tunnel.connect(this.options.pass,
+                { address: socket.remoteAddress, port: socket.remotePort }
+            )
         })
 
         this.server.on('error', (e: any) => {
@@ -72,13 +74,21 @@ export default class Tcp extends Component {
 
     init_client() {
 
-        const index = this.options.pass.indexOf(":")
-        const host = this.options.pass.substring(0, index)
-        const port = this.options.pass.substring(index + 1)
+        const index = this.options.pass?.indexOf(":")
+        const host = this.options.pass?.substring(0, index)
+        const port = this.options.pass?.substring(index + 1)
 
-        this.on("connection", (tunnel: Tunnel) => {
+        this.on("connection", (tunnel: Tunnel, info: any, destination: any) => {
 
             console.log("on connection", host, port)
+
+            const target_host = destination?.host || host
+            const target_port = destination?.port || port
+
+            if (target_host == null || target_port == null) {
+                tunnel.destroy(new Error(`unknown next pass in ${this.name}`))
+                return
+            }
 
             const socket = new Socket()
 
@@ -86,7 +96,7 @@ export default class Tcp extends Component {
 
             this.on_new_socket(socket, tunnel)
 
-            socket.connect(port, host)
+            socket.connect(target_port, target_host)
         })
     }
 
