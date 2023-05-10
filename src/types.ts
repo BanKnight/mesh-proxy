@@ -78,6 +78,10 @@ export class Component extends EventEmitter {
             tunnel.destroy(new Error(`component[${this.name}] close`))
         })
 
+        this.on("error", (error) => {
+            console.error("tunnel:error", error)
+        })
+
         return tunnel
     }
 }

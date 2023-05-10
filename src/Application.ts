@@ -530,3 +530,11 @@ export class Application {
         return new class_(options)
     }
 }
+
+process.on("uncaughtException", (error: Error, origin: any) => {
+    console.error("uncaughtException", error)
+})
+
+process.on("unhandledRejection", (error: Error, origin: any) => {
+    console.error("unhandledRejection", error)
+})

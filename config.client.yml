@@ -15,7 +15,8 @@ components:
     type: socks5
     passes:
       tcp: client/free
-    users: {}
+    users: 
+      - id: xxxxxxx
 
   - name: client/free
     type: tcp

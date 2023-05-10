@@ -6,24 +6,33 @@ users:
   client: { token: "token" }
 
 components:
-  - name: server/vless-port
-    type: websocket
-    port: 443
-    path: /donghuicheng
+  # - name: server/vless-port
+  #   type: websocket
+  #   port: 443
+  #   path: /donghuicheng
+  #   pass: server/vless
+
+  - name: server/vless-in
+    type: tcp
+    port: 6566
     pass: server/vless
 
-  - name: server/vless
+  - name: server/vless-dispatch
     type: vless
     passes:
-      tcp: server/tcp
+      tcp: server/debug
       udp: server/udp
     users:
-      - donghuicheng
+      - id: donghuicheng
+
+  - name: server/debug
+    type: channel
+    pass: server/vlesstcp
+    # show: true
 
   - name: server/vlesstcp
     type: tcp
-  - name: server/vlessudp
-    type: udp
+
 
   
 

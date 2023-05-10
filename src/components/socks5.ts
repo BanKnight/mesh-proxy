@@ -2,7 +2,7 @@ import { Component, ComponentOption, Tunnel } from "../types.js";
 
 export default class Socks5 extends Component {
 
-    users = new Map<string, string>()
+    users = new Map<string, any>()
 
     constructor(options: ComponentOption) {
         super(options)
@@ -17,8 +17,8 @@ export default class Socks5 extends Component {
             this.emit("error", new Error("no pass defined in the options"))
         }
 
-        for (const name in this.options.users) {
-            this.users.set(name, this.users[name])
+        for (const user of this.options.users) {
+            this.users.set(user.name, user)
         }
     }
     close() { }
@@ -79,6 +79,56 @@ export default class Socks5 extends Component {
             }
         }
     }
+
+    authenticate<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+
+        if (tunnel.pendings == null) {
+            tunnel.pendings = buffer
+        }
+        else {
+            buffer.copy(tunnel.pendings, tunnel.pendings.length)
+        }
+
+        buffer = tunnel.pendings
+
+        if (buffer.length < 3 + 2) {
+            return
+        }
+
+        let offset = 0
+
+        const version = buffer[offset++]
+        const ulen = buffer[offset++]
+        const uname = buffer.toString("utf-8", offset, offset += ulen)
+        const plen = buffer[offset++]
+        const password = buffer.toString("utf-8", offset, offset += plen)
+
+        const response = buffer
+
+        if (version != 0x05) {
+
+            response[0] = 0x05
+            response[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+            tunnel.end(response)
+            return
+        }
+
+        const exists = this.users.get(uname)
+
+        if (exists == null || exists.password != password) {
+            response[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+            tunnel.end(response)
+            return
+        }
+
+        response[1] = RFC_1928_REPLIES.SUCCEEDED
+        tunnel.write(response.subarray(0, 2))
+
+        tunnel.pendings = null
+        tunnel.removeAllListeners("data")
+        tunnel.on('data', this.connect.bind(this, tunnel, source));
+    }
+
     connect<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
 
         if (tunnel.pendings == null) {
@@ -111,6 +161,7 @@ export default class Socks5 extends Component {
 
         const dest = {
             address: "",
+            protocol: null,
             port: 0
         }
 
@@ -154,25 +205,24 @@ export default class Socks5 extends Component {
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:
-                this.on_bind(tunnel, source, dest, response)
+                this.on_cmd_bind(tunnel, source, dest, response)
                 break
             case RFC_1928_COMMANDS.CONNECT:
-                this.on_connect(tunnel, source, dest, response)
+                dest.protocol = "tcp"
+                this.on_cmd_connect(tunnel, source, dest, response)
                 break
             case RFC_1928_COMMANDS.UDP_ASSOCIATE:
-                this.on_udp(tunnel, source, dest, response)
+                this.on_cmd_udp(tunnel, source, dest, response)
                 break
         }
     }
 
-    authenticate<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any) { }
-
-    on_bind(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_bind(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }
 
-    on_connect(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_connect(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
 
         const next = this.create_tunnel()
 
@@ -199,7 +249,7 @@ export default class Socks5 extends Component {
         })
     }
 
-    on_udp(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_udp(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }

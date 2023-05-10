@@ -1,7 +1,6 @@
-import url from 'url';
-import { Component, ComponentOption } from "../types.js";
 import http from 'http';
 import * as ws from "ws"
+import { Component, ComponentOption, Tunnel } from "../types.js";
 
 export default class Http extends Component {
 
@@ -118,16 +117,62 @@ export default class Http extends Component {
     }
     ws_proxy(req: http.IncomingMessage, res: http.ServerResponse, site: any) {
 
-        this.wss.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket) => {
+        req.socket.setKeepAlive(true)
+        req.socket.setNoDelay(true)
+        req.socket.setTimeout(3000)
+
+        this.wss.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: ws.WebSocket) => {
 
             // 连接到远端服务器，并发起 HTTP 请求
             const tunnel = this.create_tunnel()
 
-            tunnel.connect(site.pass, () => { })
+            tunnel.connect(site.pass, {
+                address: req.socket.remoteAddress,
+                port: req.socket.remotePort
+            })
 
-            socket.on('message', msg => tunnel.write(msg));
-
-            tunnel.on('data', data => socket.send(data, err => err && socket.close()));
+            this.on_new_socket(socket, tunnel)
         });
     };
+
+
+    on_new_socket(socket: ws.WebSocket, tunnel: Tunnel) {
+
+        const timer = setInterval(() => {
+            if (socket.readyState == socket.OPEN) {
+                socket.ping()
+            }
+            else {
+                clearInterval(timer)
+            }
+        }, this.options.timeout || 10000)
+
+        socket.on("message", (data) => {
+            tunnel.push(data)
+        })
+
+        tunnel.on("data", (data) => {
+            socket.send(data)
+        })
+
+        socket.on('close', () => {
+            tunnel.push(null);
+            tunnel.end();
+        });
+
+        tunnel.on("error", () => {
+            tunnel.destroy()
+            socket.close()
+        })
+
+        socket.on("error", (error) => {
+            socket.close()
+            tunnel.destroy(error)
+        })
+
+        tunnel.on("close", () => {
+            tunnel.destroy()
+            socket.close()
+        })
+    }
 }
