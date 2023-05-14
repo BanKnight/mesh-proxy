@@ -1,0 +1,13 @@
+name: server
+port: 8086
+host: ""
+path: /test
+
+auth:
+  client: { token: "token" }
+
+components: []
+
+
+  
+

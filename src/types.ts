@@ -1,11 +1,21 @@
 // import { Socket } from "net";
 import EventEmitter from "events";
 import { randomUUID } from 'crypto';
-
-import { Socket as ServerSocket } from "socket.io"
-import { Socket as ClientSocket } from 'socket.io-client';
+import http from "http"
+import https from "https"
+import tls, { SecureContextOptions } from 'tls';
+import ws from "ws"
 import { Duplex, Readable, Writable } from "stream";
+declare module "net"
+{
+    interface Socket {
+        id: string;
+    }
+}
 
+export type WSocket = ws.WebSocket & {
+    write?: (event: string, ...args: any[]) => void
+}
 export interface ServerOption {
     name: string
     url: string
@@ -22,14 +32,13 @@ export interface ComponentOption extends Record<string, any> {
     type: string;
 }
 
-export interface Config {
-    basic: {
-        name: string;
-        protocol: string;
-        token?: string;
-        port?: number;
-    }
-    users: Record<string, UserOption>;
+export interface Config extends Record<string, any> {
+    name: string;
+    token?: string;
+    port?: number;
+    host?: string;
+    path?: string;
+    auth: Record<string, UserOption>;
     servers: ServerOption[];
     components: ComponentOption[];
 }
@@ -38,12 +47,12 @@ export class Node extends EventEmitter {
 
     name: string
     url?: URL
-    socket: ServerSocket | ClientSocket
+    socket: WSocket
     components: Record<string, Component> = {};  //[name] = compnent
 
     send(event: string, ...args: any[]) {
         if (this.socket) {
-            this.socket.emit(event, ...args)
+            this.socket.write(event, ...args)
         }
         else {
             this.emit(event, ...args)
@@ -51,11 +60,18 @@ export class Node extends EventEmitter {
     }
 }
 
+
+export interface SiteOptions {
+    host: string,
+    port?: number,
+    ssl?: SecureContextOptions,
+}
 export class Component extends EventEmitter {
 
     node: Node
     name: string;
     options: ComponentOption
+    create_site: (options: SiteOptions) => SiteInfo;
 
     constructor(options: ComponentOption) {
         super()
@@ -84,6 +100,7 @@ export class Component extends EventEmitter {
 
         return tunnel
     }
+
 }
 
 export class Tunnel extends Duplex {
@@ -155,6 +172,22 @@ export class Tunnel extends Duplex {
     }
 }
 
+export type Location = ((...args: any[]) => void) & { ws?: boolean }
+
+export interface SiteInfo {
+    host: string;
+    // callback?: (...args: any[]) => void;
+    context?: tls.SecureContext;
+    locations: Map<string, Location>;
+    auth: Map<string, string>
+}
+
+export type HttpServer = (http.Server | https.Server) & {
+    port: number;
+    ssl: boolean;
+    sites: Map<string, SiteInfo>;
+}
+
 // export class Tunnel extends Duplex {
 
 //     id: string
@@ -171,9 +204,4 @@ export class Tunnel extends Duplex {
 //     }
 // }
 
-declare module "net"
-{
-    interface Socket {
-        id: string;
-    }
-}
+

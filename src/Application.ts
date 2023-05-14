@@ -1,10 +1,17 @@
-import { Server, Socket as ServerSocket } from "socket.io"
-import io from 'socket.io-client';
+import { WebSocket, WebSocketServer } from "ws"
+import { serialize, deserialize } from "v8"
+import http from "http"
+import https from "https"
+import tls from "tls"
+
 import { fileURLToPath, pathToFileURL } from "url"
 import { join, resolve, basename, dirname } from "path";
 import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
-import { Config, Component, Node, ComponentOption, Tunnel } from "./types.js";
+import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions } from "./types.js";
+import { basic_auth } from "./utils.js"
+import { Duplex } from "stream"
+import { buffer } from "stream/consumers"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -13,9 +20,9 @@ type Constructable<T> = new (...args: any[]) => T
 
 export class Application {
 
-    config: Config
-    server?: Server;
-    nodes: Record<string, Node> = {}                                   //[name] = node,有一个特殊的node表明是自己 [$self] = node
+    options: Config
+    httpservers = new Map<number, HttpServer>()
+    nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
     tunnels: Record<string, Tunnel> = {}
     pairs: Record<string, Tunnel> = {}
 
@@ -23,12 +30,12 @@ export class Application {
 
     constructor(file: string) {
         const content = readFileSync(resolve(file), "utf-8")
-        this.config = Object.assign({ users: [], servers: [], components: [] },
+        this.options = Object.assign({ auth: {}, servers: [], components: [] },
             parse(content) as Config)
     }
 
     get name() {
-        return this.config.basic.name
+        return this.options.name
     }
 
     async start() {
@@ -48,100 +55,144 @@ export class Application {
         this.connect_servers()
         this.prepare_components()
 
-        if (this.config.basic.port) {
+        if (this.options.port) {
             this.as_server()
         }
     }
 
     as_server() {
-        this.server = new Server()
-        this.server.on("connection", (socket: ServerSocket) => {
 
-            socket.once("auth", (data: { user: string, token: string }) => {
-
-                const config_user = this.config.users[data.user]
-                if (config_user == null || config_user.token != data.token) {
-                    socket.emit("auth_failed")
-                    socket.disconnect(true)
-                    return
-                }
-
-                console.log("recv node", data.user)
-
-                let node = this.nodes[data.user]
-                if (node) {
-                    return
-                }
-
-                node = this.nodes[data.user] = new Node()
-                node.name = data.user
-                node.socket = socket
-
-                this.prepare_node(node)
-                this.prepare_node_socket(node)
-            })
-
-            socket.on("error", (error: Error) => {
-                console.error(error)
-            })
+        const site = this.create_site({
+            port: this.options.port,
+            host: this.options.host || "",
+            ssl: this.options.ssl,
         })
 
-        this.server.on("error", (e) => {
-            console.error(e)
-        })
+        const wsserver = new WebSocketServer({ noServer: true })
 
-        this.server.listen(this.config.basic.port)
+        const callback = (req: http.IncomingMessage, rawsocket: Duplex, head: Buffer) => {
+            wsserver.handleUpgrade(req, rawsocket, head, (socket: WSocket, req) => {
+
+                socket.on("message", (data: Buffer, isBinanry) => {
+                    const { event, args } = deserialize(data)
+                    socket.emit(event, ...args)
+                })
+
+                socket.write = (event: string, ...args: any[]) => {
+                    socket.send(serialize({ event, args }))
+                }
+
+                socket.once("auth", (data: { user: string, token: string }) => {
+
+                    const config_user = this.options.auth[data.user]
+                    if (config_user == null || config_user.token != data.token) {
+                        socket.write("auth_failed")
+                        socket.close()
+                        return
+                    }
+
+                    console.log(`node[${data.user}] logined`)
+
+                    let node = this.nodes[data.user]
+                    if (node) {
+                        return
+                    }
+
+                    node = this.nodes[data.user] = new Node()
+                    node.name = data.user
+                    node.socket = socket
+
+                    this.prepare_node(node)
+                    this.prepare_node_socket(node)
+                })
+
+                socket.on("error", (error: Error) => {
+                    console.error(error)
+                })
+            })
+        }
+
+        callback.ws = true
+
+        site.locations.set(this.options.path, callback)
     }
-
     connect_servers() {
-        if (this.config.servers == null) {
+        if (this.options.servers == null) {
             return
         }
 
-        for (const one of this.config.servers) {
+        for (const one of this.options.servers) {
 
             const node = new Node()
 
             node.url = new URL(one.url)
             node.name = one.name
 
-            const socket = node.socket = io(one.url, {
-                reconnection: true,
-            });
-
-            socket.on('connect', () => {
-
-                socket.emit("auth", {
-                    user: node.url?.username,
-                    token: node.url?.password
-                })
-
-                this.on_node_connected(node)
-            });
-
-            socket.on('disconnect', () => {
-                console.log('Disconnected from server');
-            });
-            //重试失败后会调用reconnect_failed事件
-            socket.on('reconnect_failed', function () {
-                console.log('reconnect_failed');
-            });
-
+            this.connect_node(node)
             this.prepare_node(node)
-            this.prepare_node_socket(node)
         }
+    }
+
+    connect_node(node: Node, retry = 0) {
+
+        const socket = node.socket = (new WebSocket(node.url)) as WSocket
+
+        let connecting = true
+
+        socket.on("message", (data: Buffer, isBinanry) => {
+            const { event, args } = deserialize(data)
+            socket.emit(event, ...args)
+        })
+
+        socket.write = (event: string, ...args: any[]) => {
+            socket.send(serialize({ event, args }))
+        }
+
+        socket.on('open', () => {
+            connecting = false
+            retry = 0
+
+            socket.write("auth", {
+                user: node.url?.username,
+                token: node.url?.password
+            })
+            this.prepare_node_socket(node)
+            this.on_node_connected(node)
+        });
+
+        socket.on("error", (reason: Error) => {
+            if (socket.CONNECTING) {
+                console.error("connect", node.name, reason)
+                setTimeout(this.connect_node.bind(this, node), 5000)
+            }
+        })
+
+        socket.on('close', (code: number, reason: Buffer) => {
+            node.socket = null
+
+            const retry_timeout = Math.min(3000 * Math.pow(2, retry), 30000)
+
+            if (connecting) {
+                console.log(`connect node[${node.name}] error,retry after ${retry_timeout / 1000} seconds`);
+            }
+            else {
+                console.log('Disconnected from server', node.name);
+            }
+            retry++
+            setTimeout(this.connect_node.bind(this, node, retry), retry_timeout)
+        });
     }
 
     prepare_components() {
 
-        if (this.config.components == null) {
+        if (this.options.components == null) {
             return
         }
 
-        for (const options of this.config.components) {
+        for (const options of this.options.components) {
 
             const names = options.name.split("/")
-            if (names[0] != this.config.basic.name) {
+            if (names[0] != this.options.name) {
                 continue
             }
 
@@ -152,10 +203,11 @@ export class Application {
             component.node = node
             component.name = names[1]
             component.options = options
+            component.create_site = this.create_site.bind(this)
 
             node.components[component.name] = component
 
-            console.log("create component", component.name)
+            console.log(`component[${component.name}] created`)
 
             component.emit("ready")
             component.on("error", () => { })
@@ -163,8 +215,8 @@ export class Application {
     }
 
     prepare_self() {
-        const node = this.nodes[this.config.basic.name] = new Node()
-        node.name = this.config.basic.name
+        const node = this.nodes[this.options.name] = new Node()
+        node.name = this.options.name
 
         node.setMaxListeners(Infinity)
 
@@ -180,19 +232,19 @@ export class Application {
             console.log(this.name, "tunnel::connect", tunnel.id, destination)
 
             if (target == null) {
-                tunnel.emit("error", new Error(`no such node:${names[0]}`))
+                tunnel.emit("error", new Error(`no such node: ${names[0]}`))
                 return
             }
             if (target.socket) {
                 this.tunnels[tunnel.id] = tunnel
-                target.socket.emit("tunnel::connect", tunnel.id, destination, ...args)
+                target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
                 return
             }
 
             const component = target.components[names[1]]
 
             if (component == null) {
-                tunnel.emit("error", new Error(`no such component:${destination}`))
+                tunnel.emit("error", new Error(`no such component: ${destination}`))
                 return
             }
 
@@ -223,19 +275,19 @@ export class Application {
             const target = this.nodes[names[0]]
 
             if (target == null) {
-                tunnel.destroy(new Error(`no such node:${names[0]}`))
+                tunnel.destroy(new Error(`no such node: ${names[0]}`))
                 return
             }
 
             if (target.socket) {
-                target.socket.emit("tunnel::message", tunnel.id, event, ...args)
+                target.socket.write("tunnel::message", tunnel.id, event, ...args)
                 return
             }
 
             const other = this.pairs[tunnel.id]
 
             if (other == null) {
-                tunnel.destroy(new Error(`no pair:${names[0]}`))
+                tunnel.destroy(new Error(`no pair: ${names[0]}`))
                 return
             }
 
@@ -255,19 +307,19 @@ export class Application {
             const target = this.nodes[names[0]]
 
             if (target == null) {
-                tunnel.destroy(new Error(`no such node:${names[0]}`))
+                tunnel.destroy(new Error(`no such node: ${names[0]}`))
                 return
             }
 
             if (target.socket) {
-                target.socket.emit("tunnel::write", tunnel.id, chunk)
+                target.socket.write("tunnel::write", tunnel.id, chunk)
                 return
             }
 
             const other = this.pairs[tunnel.id]
 
             if (other == null) {
-                tunnel.destroy(new Error(`no pair:${names[0]}`))
+                tunnel.destroy(new Error(`no pair: ${names[0]}`))
                 return
             }
             other.push(chunk)
@@ -296,7 +348,7 @@ export class Application {
             }
 
             if (target.socket) {
-                target.socket.emit("tunnel::end", tunnel.id, chunk)
+                target.socket.write("tunnel::end", tunnel.id, chunk)
                 return
             }
         })
@@ -334,7 +386,7 @@ export class Application {
             }
 
             if (target.socket) {
-                target.socket.emit("tunnel::destroy", tunnel.id, this.wrap_error(error))
+                target.socket.write("tunnel::destroy", tunnel.id, this.wrap_error(error))
                 return
             }
         })
@@ -354,8 +406,8 @@ export class Application {
             console.error("auth_failed")
         })
 
-        node.socket.on("disconnect", (reason) => {
-            console.log(`node[${node.name}] disconnected due to ${reason}`);
+        node.socket.on("close", (code, reason) => {
+            console.log(`node[${node.name}]disconnected due to ${code} ${reason}`);
             delete this.nodes[node.name]
         })
 
@@ -369,10 +421,11 @@ export class Application {
             component.name = names[1]
             component.node = that
             component.options = options
+            component.create_site = this.create_site.bind(this)
 
             that.components[component.name] = component
 
-            console.log(`create component ${options.name} from:${node.name}`)
+            console.log(`component[${options.name}] created from: ${node.name}`)
 
             component.emit("ready")
 
@@ -383,7 +436,7 @@ export class Application {
                 const exists = delete that.components[component.name]
 
                 if (exists) {
-                    console.log(`node[${node.name}] disconnect`, "destroy component", options.name)
+                    console.log(`node[${node.name}]disconnect`, "destroy component", options.name)
                     component.destroy()
                 }
             }
@@ -400,8 +453,8 @@ export class Application {
             const component = that.components[names[1]]
 
             if (component == null) {
-                const error = new Error(`no such component:${destination}`)
-                node.socket.emit("tunnel::error", id, { message: error.message, stack: error.stack })
+                const error = new Error(`no such component: ${destination}`)
+                node.socket.write("tunnel::error", id, { message: error.message, stack: error.stack })
                 return
             }
 
@@ -412,11 +465,11 @@ export class Application {
             this.tunnels[tunnel.id] = tunnel
 
             component.emit("connection", tunnel, ...args)
-            node.socket.emit("tunnel::connection", id)
+            node.socket.write("tunnel::connection", id)
 
             //对端断开了，那么tunnel也要销毁
             node.socket.once("disconnect", () => {
-                tunnel.destroy(new Error(`remote node[${node.name}] disconnect`))
+                tunnel.destroy(new Error(`remote node[${node.name}]disconnect`))
             })
         })
 
@@ -509,25 +562,178 @@ export class Application {
 
     on_node_connected(node: Node) {
 
-        console.log(`${node.name} connected`)
+        console.log(`node[${node.name}] connected`)
 
         this.nodes[node.name] = node
-
-        for (const component of this.config.components) {
+        for (const component of this.options.components) {
             const names = component.name.split("/")
             if (names[0] != node.name) {
                 continue
             }
-            node.socket.emit("regist", component)
+            node.socket.write("regist", component)
         }
     }
-
     create_component(options: ComponentOption) {
+
         const class_ = this.components[options.type]
         if (class_ == null) {
-            throw new Error(`unsupported component type:${options.type} in ${options.name}`)
+            throw new Error(`unsupported component type: ${options.type} in ${options.name}`)
         }
         return new class_(options)
+    }
+
+    create_site(options: SiteOptions) {
+
+        let port_server = this.httpservers.get(options.port)
+        if (port_server == null) {
+            port_server = this.create_http_server(options)
+        }
+        else if ((port_server.ssl == null) != (options.ssl == null)) {
+            throw new Error(`confict ssl options at ${options.port}`)
+        }
+
+        let site = port_server.sites.get(options.host)
+        if (site) {
+            return site
+        }
+
+        site = {
+            host: options.host,
+            locations: new Map(),
+            auth: new Map(),
+        }
+
+        if (options.ssl) {
+            site.context = tls.createSecureContext(options.ssl);
+        }
+
+        port_server.sites.set(site.host, site)
+
+        return site
+    }
+
+    create_http_server(options: SiteOptions) {
+
+        let server: HttpServer
+
+        if (options.ssl) {
+            server = https.createServer({
+                SNICallback: (servername, cb) => {
+                    const site = server.sites.get(servername)
+                    if (site) {
+                        cb(null, site.context);
+                    } else {
+                        cb(new Error('No such server'));
+                    }
+                }
+            }) as HttpServer
+
+            server.port = options.port || 443
+            server.ssl = true
+        }
+        else {
+            server = (http.createServer()) as HttpServer
+            server.port = options.port || 80
+            server.ssl = false
+        }
+
+        server.sites = new Map()
+
+        function get_site(req) {
+            const url = new URL(req.headers.host)
+            let site = server.sites.get(url.host)
+            if (site == null) {
+                site = server.sites.get("")
+            }
+            return site
+        }
+
+        server.on("request", (req, res) => {
+
+            let site = get_site(req)
+
+            if (site == null) {
+                res.writeHead(404);
+                res.end();
+                return;
+            }
+
+            if (site.auth.size > 0) {
+                const credentials = basic_auth(req)
+                if (credentials == null) {
+                    res.writeHead(404);
+                    res.end("Unauthorized");
+                    return;
+                }
+            }
+
+            req.socket.setKeepAlive(true)
+            req.socket.setNoDelay(true)
+            req.socket.setTimeout(0)
+
+            const location = site.locations.get(req.url)    //location
+            if (location == null) {
+                return;
+            }
+
+            location(req, res)
+        })
+        server.on("upgrade", (req, socket, head) => {
+
+            let site = get_site(req)
+            if (site == null) {
+                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+
+            if (site.auth.size > 0) {
+                const credentials = basic_auth(req)
+                if (credentials == null) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
+
+                const pass = site.auth.get(credentials.username)
+
+                if (pass != credentials.password) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return
+                }
+            }
+            const location = site.locations.get(req.url)    //location
+            if (location == null || !location.ws) {
+                socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+
+            req.socket.setTimeout(0);
+            req.socket.setNoDelay(true);
+            req.socket.setKeepAlive(true, 0);
+
+            location(req, socket, head)
+        })
+
+        server.listen(server.port, () => {
+            console.log("http listening:", server.port)
+        })
+
+        server.on('error', (e: any) => {
+            if (e.code === 'EADDRINUSE') {
+                console.log('Address in use, retrying...');
+                setTimeout(() => {
+                    server.close();
+                    server.listen(server.port);
+                }, 1000);
+            }
+        });
+
+        this.httpservers.set(server.port, server)
+
+        return server
     }
 }
 

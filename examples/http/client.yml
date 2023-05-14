@@ -1,0 +1,21 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+
+components:
+  - name: server/http
+    type: http
+    host: hao.mr-tutu.net
+    port: 80
+    locations:
+      /:
+        pass: client/http
+      /donghuicheng:
+        pass: client/websocket
+
+  - name: client/http
+    type: http
+    pass:
+      target: https://192.168.31.1

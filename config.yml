@@ -1,6 +1,7 @@
-basic:
-  name: "server"
-  port: 8086
+name: server
+port: 8086
+host: ""
+path: /donghuicheng
 
 users:
   client: { token: "token" }
@@ -20,15 +21,10 @@ components:
   - name: server/vless-dispatch
     type: vless
     passes:
-      tcp: server/debug
+      tcp: server/vlesstcp
       udp: server/udp
     users:
       - id: donghuicheng
-
-  - name: server/debug
-    type: channel
-    pass: server/vlesstcp
-    # show: true
 
   - name: server/vlesstcp
     type: tcp
