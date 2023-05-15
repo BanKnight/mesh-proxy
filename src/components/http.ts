@@ -1,12 +1,12 @@
 import https from "https"
 import http from "http"
-import * as ws from "ws"
+import url from "url"
 import { Component, ComponentOption, Tunnel, WSocket } from "../types.js";
 import { Duplex } from 'stream';
 
+const isSSL = /^https|wss/;
+const upgradeHeader = /(^|,)\s*upgrade\s*($|,)/i
 export default class Http extends Component {
-
-    target: URL;
 
     constructor(options: ComponentOption) {
         super(options)
@@ -18,9 +18,7 @@ export default class Http extends Component {
     ready() {
 
         if (this.options.port == null) {
-
-            this.target = new URL(this.options.pass.target)
-
+            this.options.target = url.parse(this.options.target)
             this.on("connection", this.connection.bind(this))
             return
         }
@@ -80,23 +78,38 @@ export default class Http extends Component {
             });
 
             tunnel.connect(location.pass, {
-                protocol: "http",
-                ssl: this.options.ssl != null,
                 method: req.method,
                 headers: req.headers,
                 rawHeaders: req.rawHeaders,
                 url: req.url,
-                address: req.socket.remoteAddress,
-                port: req.socket.remotePort,
-            }, () => {
+                httpVersion: req.httpVersion,
+                httpVersionMajor: req.httpVersionMajor,
+                httpVersionMinor: req.httpVersionMinor,
+                socket: {
+                    remoteAddress: req.socket.remoteAddress,
+                    remotePort: req.socket.remotePort,
+                }
+            }, (resp: any) => {
 
-                // 组装 HTTP 请求头和正文
-                const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
-                // 将 HTTP 请求头和正文发送给远端服务器
-                tunnel.write(requestData);
+                // // 组装 HTTP 请求头和正文
+                // const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
+                // // 将 HTTP 请求头和正文发送给远端服务器
+                // tunnel.write(requestData);
 
-                req.pipe(tunnel);
+                if (!res.headersSent) {
+                    for (let name in resp.headers) {
+                        let val = resp.headers[name]
+                        res.setHeader(name, val)
+                    }
+                    res.writeHead(resp.statusCode, resp.statusMessage)
+                }
+
                 tunnel.pipe(res);
+            })
+
+            req.pipe(tunnel);
+            req.on("end", () => {
+                console.log("req end")
             })
         }
     }
@@ -163,13 +176,13 @@ export default class Http extends Component {
         socket.on('close', (has_error) => { });
     }
 
-    connection(tunnel: Tunnel, source: any) {
+    async connection(tunnel: Tunnel, source: any) {
 
         if (source.upgrade == "websocket") {
-            this.pass_websocket(tunnel, source)
+            return this.pass_websocket(tunnel, source)
         }
         else {
-            this.pass_request(tunnel, source)
+            return this.pass_request(tunnel, source)
         }
     }
 
@@ -177,7 +190,176 @@ export default class Http extends Component {
 
     }
 
-    pass_request(tunnel: Tunnel, source: any) {
+    async pass_request(tunnel: Tunnel, source: any) {
 
+        if (this.options.forward) {
+            // If forward enable, so just pipe the request
+            const forwardReq = (this.options.forward.protocol === 'https:' ? https : http).request(
+                this.req_options(source, "forward")
+            );
+
+            // error handler (e.g. ECONNRESET, ECONNREFUSED)
+            // Handle errors on incoming request as well as it makes sense to
+            const forwardError = forwardReq.destroy.bind(forwardReq)
+
+            tunnel.on('error', forwardError);
+            forwardReq.on('error', forwardError);
+
+            (this.options.buffer || source).pipe(forwardReq);
+            if (!this.options.target) { return tunnel.end(); }
+        }
+
+        const outoptions = this.req_options(source)
+
+        return new Promise((resolve, reject) => {
+
+            const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
+
+                if (tunnel.writableFinished) {
+                    resolve(null)
+                    return
+                }
+
+                resolve({
+                    httpVersion: proxyRes.httpVersion,
+                    statusCode: proxyRes.statusCode,
+                    statusMessage: proxyRes.statusMessage,
+                    rawHeaders: proxyRes.rawHeaders,
+                    headers: proxyRes.headers,
+                })
+
+                proxyRes.pipe(tunnel);
+            });
+
+            // allow outgoing socket to timeout so that we could
+            // show an error page at the initial request
+            if (this.options.proxyTimeout) {
+                proxyReq.setTimeout(this.options.proxyTimeout, function () {
+                    proxyReq.destroy();
+                });
+            }
+            // Ensure we abort proxy if request is aborted
+            const destroy_handler = proxyReq.destroy.bind(proxyReq)
+
+            tunnel.on('close', destroy_handler);
+            tunnel.on('error', destroy_handler);
+
+            tunnel.pipe(proxyReq);
+
+            proxyReq.on('error', console.error);
+        })
     }
+
+    req_options(req: any, forward?: string) {
+
+        const outoptions = { ...this.options.ssl }
+        const target = this.options[forward || 'target'];
+
+        outoptions.port = this.options.target.port
+
+        for (const name of ['host', 'hostname', 'socketPath', 'pfx', 'key',
+            'passphrase', 'cert', 'ca', 'ciphers', 'secureProtocol']) {
+            outoptions[name] = target[name];
+        }
+
+        outoptions.method = this.options.method || req.method
+        outoptions.headers = { ...req.headers }
+
+        if (this.options.headers) {
+            Object.assign(outoptions.headers, this.options.headers)
+        }
+
+        if (this.options.auth) {
+            outoptions.auth = this.options.auth
+        }
+
+        if (this.options.ca) {
+            outoptions.ca = this.options.ca
+        }
+
+        if (isSSL.test(target.protocol)) {
+            outoptions.rejectUnauthorized = (typeof this.options.secure === "undefined") ? true : this.options.secure;
+        }
+
+        outoptions.agent = this.options.agent || false;
+        outoptions.localAddress = this.options.localAddress;
+
+        if (!outoptions.agent) {
+            outoptions.headers = outoptions.headers || {};
+            if (typeof outoptions.headers.connection !== 'string'
+                || !upgradeHeader.test(outoptions.headers.connection)
+            ) {
+                outoptions.headers.connection = 'close';
+            }
+        }
+
+        const targetPath = this.options.prependPath !== false ?
+            (target.path || '') : '';
+
+        let outgoingPath = !this.options.toProxy
+            ? (url.parse(req.url).path || '')
+            : req.url;
+
+        //
+        // Remark: ignorePath will just straight up ignore whatever the request's
+        // path is. This can be labeled as FOOT-GUN material if you do not know what
+        // you are doing and are using conflicting options.
+        //
+        outgoingPath = !this.options.ignorePath ? outgoingPath : '';
+
+        outoptions.path = this.url_join(targetPath, outgoingPath);
+
+        if (this.options.changeOrigin) {
+
+            const has_port = this.hasPort(outoptions.host)
+
+            if (has_port == false) {
+                if (target.protocol == "http" && outoptions.port != 80) {
+                    outoptions.headers.host = outoptions.host + ':' + outoptions.port
+                }
+                else if (target.protocol == "https" && outoptions.port != 443) {
+                    outoptions.headers.host = outoptions.host + ':' + outoptions.port
+                }
+                else {
+                    outoptions.headers.host = outoptions.host
+                }
+            }
+        }
+
+        return outoptions
+    }
+
+
+
+    url_join(...args: string[]) {
+
+        let lastIndex = args.length - 1,
+            last = args[lastIndex],
+            lastSegs = last.split('?')
+
+        args[lastIndex] = lastSegs.shift();
+
+        //
+        // Join all strings, but remove empty strings so we don't get extra slashes from
+        // joining e.g. ['', 'am']
+        //
+        let retSegs = [
+            args.filter(Boolean).join('/')
+                .replace(/\/+/g, '/')
+                .replace('http:/', 'http://')
+                .replace('https:/', 'https://')
+        ];
+
+        // Only join the query string if it exists so we don't have trailing a '?'
+        // on every request
+
+        // Handle case where there could be multiple ? in the URL.
+        retSegs.push.apply(retSegs, lastSegs);
+
+        return retSegs.join('?')
+    }
+
+    hasPort(host) {
+        return !!~host.indexOf(':');
+    };
 }

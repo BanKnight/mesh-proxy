@@ -11,7 +11,6 @@ import { readFileSync, readdirSync } from "fs";
 import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions } from "./types.js";
 import { basic_auth } from "./utils.js"
 import { Duplex } from "stream"
-import { buffer } from "stream/consumers"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -225,7 +224,7 @@ export class Application {
 
     prepare_node(node: Node) {
 
-        node.on("tunnel::connect", (tunnel: Tunnel, destination: string, ...args: any[]) => {
+        node.on("tunnel::connect", async (tunnel: Tunnel, destination: string, ...args: any[]) => {
             const names = destination.split("/")
             const target = this.nodes[names[0]]
 
@@ -258,8 +257,12 @@ export class Application {
             this.pairs[tunnel.id] = revert
             this.pairs[revert.id] = tunnel
 
-            component.emit("connection", revert, ...args)
-            tunnel.emit("connect")
+            const first_handler = component.listeners("connection")[0]
+
+            if (first_handler) {
+                const result = await first_handler(revert, ...args)
+                tunnel.emit("connect", result)
+            }
         })
 
         //本端发出事件
@@ -331,7 +334,7 @@ export class Application {
             console.log(this.name, "tunnel::end", tunnel.id)
 
             const revert = this.pairs[tunnel.id]
-            if (revert) {                           //通道干掉
+            if (revert) {                           //双向通道干掉，那么干掉这边的
                 delete this.pairs[tunnel.id]
                 revert.end(chunk)
             }
@@ -444,7 +447,7 @@ export class Application {
             node.socket.on("disconnect", on_disconnect)
         })
 
-        node.socket.on("tunnel::connect", (id: string, destination: string, ...args: any[]) => {
+        node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
 
             console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
 
@@ -464,23 +467,25 @@ export class Application {
 
             this.tunnels[tunnel.id] = tunnel
 
-            component.emit("connection", tunnel, ...args)
-            node.socket.write("tunnel::connection", id)
-
             //对端断开了，那么tunnel也要销毁
             node.socket.once("disconnect", () => {
                 tunnel.destroy(new Error(`remote node[${node.name}]disconnect`))
             })
+
+            const first_handler = component.listeners("connection")[0]
+            if (first_handler) {
+                const result = await first_handler(tunnel, ...args)
+                node.socket.write("tunnel::connection", id, result)
+            }
         })
 
-        node.socket.on("tunnel::connection", (id: string) => {
+        node.socket.on("tunnel::connection", (id: string, ...args: any[]) => {
 
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
                 return
             }
-
-            tunnel.emit("connect")
+            tunnel.emit("connect", ...args)
         })
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
             const tunnel = this.tunnels[id]
@@ -520,7 +525,10 @@ export class Application {
 
             console.log(this.name, "tunnel::end,from", node.name, tunnel.id)
 
-            tunnel.end(chunk)
+            if (chunk) {
+                tunnel.push(chunk)
+            }
+            tunnel.emit("end")
         })
 
         node.socket.on("tunnel::destroy", (id: string, error?: any) => {
@@ -588,9 +596,10 @@ export class Application {
         if (port_server == null) {
             port_server = this.create_http_server(options)
         }
-        else if ((port_server.ssl == null) != (options.ssl == null)) {
-            throw new Error(`confict ssl options at ${options.port}`)
-        }
+
+        // else if ((port_server.ssl == null) != (options.ssl == null)) {
+        //     throw new Error(`confict ssl options at ${options.port}`)
+        // }
 
         let site = port_server.sites.get(options.host)
         if (site) {
@@ -639,9 +648,8 @@ export class Application {
 
         server.sites = new Map()
 
-        function get_site(req) {
-            const url = new URL(req.headers.host)
-            let site = server.sites.get(url.host)
+        function get_site(req: http.IncomingMessage) {
+            let site = server.sites.get(req.headers.host)
             if (site == null) {
                 site = server.sites.get("")
             }
@@ -649,9 +657,7 @@ export class Application {
         }
 
         server.on("request", (req, res) => {
-
             let site = get_site(req)
-
             if (site == null) {
                 res.writeHead(404);
                 res.end();
@@ -673,13 +679,13 @@ export class Application {
 
             const location = site.locations.get(req.url)    //location
             if (location == null) {
+                res.writeHead(404);
+                res.end("Not found");
                 return;
             }
-
             location(req, res)
         })
         server.on("upgrade", (req, socket, head) => {
-
             let site = get_site(req)
             if (site == null) {
                 socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -709,7 +715,6 @@ export class Application {
                 socket.destroy();
                 return;
             }
-
             req.socket.setTimeout(0);
             req.socket.setNoDelay(true);
             req.socket.setKeepAlive(true, 0);
@@ -722,6 +727,9 @@ export class Application {
         })
 
         server.on('error', (e: any) => {
+
+            console.error(e)
+
             if (e.code === 'EADDRINUSE') {
                 console.log('Address in use, retrying...');
                 setTimeout(() => {

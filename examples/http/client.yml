@@ -7,15 +7,15 @@ servers:
 components:
   - name: server/http
     type: http
-    host: hao.mr-tutu.net
+    host: hao.mr-tutu.com
     port: 80
     locations:
       /:
         pass: client/http
       /donghuicheng:
         pass: client/websocket
+        ws: true
 
   - name: client/http
     type: http
-    pass:
-      target: https://192.168.31.1
+    target: http://192.168.31.1
