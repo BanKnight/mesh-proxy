@@ -24,7 +24,6 @@ export class Application {
     nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
     tunnels: Record<string, Tunnel> = {}
     pendings: Record<string, { tunnel: Tunnel, callback: Function }> = {}
-    pairs: Record<string, Tunnel> = {}
 
     components: Record<string, Constructable<Component>> = {}
 
@@ -233,72 +232,6 @@ export class Application {
     }
 
     prepare_node(node: Node) {
-
-        //本端发出write事件
-        node.on("tunnel::end", (tunnel: Tunnel, chunk?: unknown) => {
-
-            console.log(this.name, "tunnel::end", tunnel.id)
-
-            const revert = this.pairs[tunnel.id]
-            if (revert) {                           //双向通道干掉，那么干掉这边的
-                delete this.pairs[tunnel.id]
-                revert.end(chunk)
-            }
-
-            if (tunnel.destination == null) {       //表明是本地的
-                return
-            }
-
-            const names = tunnel.destination.split("/")
-            const target = this.nodes[names[0]]
-
-            if (target == null) {
-                return
-            }
-
-            if (target.socket) {
-                target.socket.write("tunnel::end", tunnel.id, chunk)
-                return
-            }
-        })
-        //本端发出destroy事件
-        node.on("tunnel::destroy", (tunnel: Tunnel, error?: Error) => {
-
-            console.log(this.name, "tunnel::destroy", tunnel.id)
-
-            const existed = delete this.tunnels[tunnel.id]      //表明是从远端过来触发的
-            if (existed == null) {
-                return
-            }
-
-            const revert = this.pairs[tunnel.id]
-
-            if (revert) {
-
-                delete this.tunnels[revert.id]
-
-                delete this.pairs[tunnel.id]
-                delete this.pairs[revert.id]
-
-                revert.destroy(error)
-            }
-
-            if (tunnel.destination == null) {       //表明是本地的
-                return
-            }
-
-            const names = tunnel.destination.split("/")
-            const target = this.nodes[names[0]]
-
-            if (target == null) {
-                return
-            }
-
-            if (target.socket) {
-                target.socket.write("tunnel::destroy", tunnel.id, this.wrap_error(error))
-                return
-            }
-        })
     }
 
     connect_component(destination: string, ...args: any[]) {
@@ -315,11 +248,30 @@ export class Application {
 
         const tunnel = new Tunnel()
 
+        tunnel.connecting = true
+
         console.log(this.name, "tunnel::connect", tunnel.id, destination)
 
         if (target.socket) {
+
             this.pendings[tunnel.id] = { tunnel, callback }
+
             target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
+
+            tunnel._read = () => { }
+            tunnel._write = (chunk, encoding, callback) => {
+                target.socket.write("tunnel::data", tunnel.id, chunk)
+                callback()
+            }
+
+            tunnel._final = (callback: (error?: Error | null) => void) => {
+                target.socket.write("tunnel::final", tunnel.id)
+                callback()
+            }
+            tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+                target.socket.write("tunnel::close", tunnel.id, this.wrap_error(error))
+                callback(error)
+            }
             return
         }
 
@@ -341,14 +293,43 @@ export class Application {
 
         revert._write = (chunk, encoding, callback) => {
             if (!tunnel.push(chunk, encoding)) {
-                tunnel.pause();
+                revert.pause();
             }
             callback()
         }
 
-        tunnel._read = () => { };
-        revert._read = () => { };
+        tunnel._read = () => {
+            if (revert.isPaused) {
+                revert.resume()
+            }
+        };
+        revert._read = () => {
+            if (tunnel.isPaused) {
+                tunnel.resume()
+            }
+        };
 
+        tunnel._final = (callback: (error?: Error | null) => void) => {
+            callback()
+            revert.emit("end")
+        }
+
+        revert._final = (callback: (error?: Error | null) => void) => {
+            callback()
+            tunnel.emit("end")
+        }
+
+        // tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+        //     callback(error)
+        //     revert.emit("close")
+        // }
+
+        // revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+        //     callback(error)
+        //     tunnel.emit("close")
+        // }
+
+        tunnel.connecting = false
         component.emit("connection", revert, ...args, callback)
 
         return tunnel
@@ -421,24 +402,29 @@ export class Application {
                 return
             }
 
-            const tunnel = new Tunnel(id)
+            const tunnel = this.tunnels[id] = new Tunnel(id)
 
             tunnel.destination = `${node.name}/?`
 
-            this.tunnels[tunnel.id] = tunnel
-
             tunnel._write = (chunk, encoding, callback) => {
-
-                node.socket.write("tunnel::write", id, chunk)
-
+                node.socket.write("tunnel::data", id, chunk)
                 callback()
             }
 
             tunnel._read = () => { };
+            tunnel._final = (callback: (error?: Error | null) => void) => {
+                node.socket.write("tunnel::final", id)
+                callback()
+            }
+
+            tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+                node.socket.write("tunnel::close", id, this.wrap_error(error))
+                callback(error)
+            }
 
             //对端断开了，那么tunnel也要销毁
             node.socket.once("disconnect", () => {
-                tunnel.destroy(new Error(`remote node[${node.name}]disconnect`))
+                tunnel.destroy(new Error(`destroy by remote node[${node.name}] disconnect`))
             })
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
@@ -460,11 +446,12 @@ export class Application {
                 e.name = error.name;
                 e.stack = e.stack + '\n' + error.stack;
 
-                pending.callback(e)
+                pending.callback(e, ...args)
             }
             else {
                 this.tunnels[id] = pending.tunnel
             }
+            pending.tunnel.connecting = false
         })
 
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
@@ -474,12 +461,27 @@ export class Application {
             }
             tunnel.emit(`message.${event}`, ...args)
         })
-        node.socket.on("tunnel::write", (id: string, chunk: any) => {
+
+        node.socket.on("tunnel::data", (id: string, chunk: any) => {
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
                 return
             }
             tunnel.push(chunk)
+        })
+
+
+
+        node.socket.on("tunnel::final", (id: string) => {
+
+            const tunnel = this.tunnels[id]
+            if (tunnel == null) {
+                return
+            }
+
+            console.log(this.name, "tunnel::final,from", node.name, tunnel.id)
+
+            tunnel.emit("end")
         })
 
         node.socket.on("tunnel::error", (id: string, error: any) => {
@@ -496,22 +498,7 @@ export class Application {
             console.error(e.message)
         })
 
-        node.socket.on("tunnel::end", (id: string, chunk?: unknown) => {
-
-            const tunnel = this.tunnels[id]
-            if (tunnel == null) {
-                return
-            }
-
-            console.log(this.name, "tunnel::end,from", node.name, tunnel.id)
-
-            if (chunk) {
-                tunnel.push(chunk)
-            }
-            tunnel.emit("end")
-        })
-
-        node.socket.on("tunnel::destroy", (id: string, error?: any) => {
+        node.socket.on("tunnel::close", (id: string, error?: any) => {
 
             console.log(this.name, "tunnel::destroy,from:", node.name, id)
 
@@ -524,15 +511,6 @@ export class Application {
 
             delete this.tunnels[id]
 
-            const revert = this.pairs[tunnel.id]
-            if (revert) {
-
-                delete this.tunnels[revert.id]
-
-                delete this.pairs[tunnel.id]
-                delete this.pairs[revert.id]
-            }
-
             if (error) {
 
                 const e = new Error(error.message)
@@ -540,11 +518,9 @@ export class Application {
                 e.name = error.name;
                 e.stack = e.stack + '\n' + error.stack;
 
-                tunnel.destroy(e)
+                tunnel.emit("error", e)
             }
-            else {
-                tunnel.close()
-            }
+            tunnel.emit("close")
         })
     }
 

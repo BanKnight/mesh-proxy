@@ -105,12 +105,12 @@ export class Component extends EventEmitter {
 }
 
 export class Tunnel extends Duplex {
-
-
     id: string;
     destination: string;
+
+    connecting = true
+
     io: (event: string, ...args: any[]) => void;
-    // connect: (destination: string, ...args: any[]) => void;
 
     constructor(id?: string, options?: DuplexOptions) {
         super({
@@ -176,10 +176,6 @@ export class Tunnel extends Duplex {
 
     off_message(event: string, listener: any) {
         this.off(`message.${event}`, listener)
-    }
-
-    close() {
-        this.destroy()
     }
 }
 
