@@ -1,4 +1,5 @@
 import { Server, Socket, createServer, connect } from "net";
+import tls from "tls"
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
 export default class Tcp extends Component {

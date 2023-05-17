@@ -1,12 +1,16 @@
+import { WebSocket, WebSocketServer, createWebSocketStream } from "ws"
 import https from "https"
 import http from "http"
 import url from "url"
-import { Component, ComponentOption, Tunnel, WSocket } from "../types.js";
+import { Component, ComponentOption, Tunnel } from "../types.js";
 import { Duplex } from 'stream';
+import { handle_upgrade, url_join, has_port } from "../utils.js";
 
 const isSSL = /^https|wss/;
 const upgradeHeader = /(^|,)\s*upgrade\s*($|,)/i
 export default class Http extends Component {
+
+    wsserver = new WebSocketServer({ noServer: true })
 
     constructor(options: ComponentOption) {
         super(options)
@@ -116,9 +120,8 @@ export default class Http extends Component {
 
     make_ws_pass(path: string, location: any) {
 
-        const callback = (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+        return (req: http.IncomingMessage, res: http.ServerResponse) => {
 
-            // 连接到远端服务器，并发起 HTTP 请求
             const tunnel = this.create_tunnel()
 
             tunnel.connect(location.pass, {
@@ -133,19 +136,22 @@ export default class Http extends Component {
                 port: req.socket.remotePort,
             }, () => {
 
-                if (head && head.length > 0) {
-                    socket.unshift(head)
-                }
-                this.on_new_socket(socket, tunnel)
+                this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WebSocket, req) => {
+
+                    const duplex = createWebSocketStream(socket)
+
+                    duplex.pipe(tunnel).pipe(duplex)
+
+                    // 连接到远端服务器，并发起 HTTP 请求
+                    tunnel.on("error", (reason) => {
+                        // socket.destroy(reason)
+                        tunnel.destroy(reason)
+                    })
+                })
+
             })
 
-            tunnel.on("error", (reason) => {
-                socket.destroy(reason)
-                tunnel.destroy(reason)
-            })
         }
-        callback.ws = true
-        return callback
     }
 
     on_new_socket(socket: Duplex, tunnel: Tunnel) {
@@ -307,13 +313,13 @@ export default class Http extends Component {
         //
         outgoingPath = !this.options.ignorePath ? outgoingPath : '';
 
-        outoptions.path = this.url_join(targetPath, outgoingPath);
+        outoptions.path = url_join(targetPath, outgoingPath);
 
         if (this.options.changeOrigin) {
 
-            const has_port = this.hasPort(outoptions.host)
+            const port_exists = has_port(outoptions.host)
 
-            if (has_port == false) {
+            if (port_exists == false) {
                 if (target.protocol == "http" && outoptions.port != 80) {
                     outoptions.headers.host = outoptions.host + ':' + outoptions.port
                 }
@@ -328,38 +334,4 @@ export default class Http extends Component {
 
         return outoptions
     }
-
-
-
-    url_join(...args: string[]) {
-
-        let lastIndex = args.length - 1,
-            last = args[lastIndex],
-            lastSegs = last.split('?')
-
-        args[lastIndex] = lastSegs.shift();
-
-        //
-        // Join all strings, but remove empty strings so we don't get extra slashes from
-        // joining e.g. ['', 'am']
-        //
-        let retSegs = [
-            args.filter(Boolean).join('/')
-                .replace(/\/+/g, '/')
-                .replace('http:/', 'http://')
-                .replace('https:/', 'https://')
-        ];
-
-        // Only join the query string if it exists so we don't have trailing a '?'
-        // on every request
-
-        // Handle case where there could be multiple ? in the URL.
-        retSegs.push.apply(retSegs, lastSegs);
-
-        return retSegs.join('?')
-    }
-
-    hasPort(host) {
-        return !!~host.indexOf(':');
-    };
 }

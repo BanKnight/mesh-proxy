@@ -69,8 +69,8 @@ export class Application {
 
         const wsserver = new WebSocketServer({ noServer: true })
 
-        const callback = (req: http.IncomingMessage, rawsocket: Duplex, head: Buffer) => {
-            wsserver.handleUpgrade(req, rawsocket, head, (socket: WSocket, req) => {
+        const callback = (req: http.IncomingMessage, res: http.ServerResponse) => {
+            wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WSocket, req) => {
 
                 socket.on("message", (data: Buffer, isBinanry) => {
                     const { event, args } = deserialize(data)
@@ -147,6 +147,8 @@ export class Application {
             socket.send(serialize({ event, args }))
         }
 
+        let timer = null
+
         socket.on('open', () => {
             connecting = false
             retry = 0
@@ -157,6 +159,10 @@ export class Application {
             })
             this.prepare_node_socket(node)
             this.on_node_connected(node)
+
+            setInterval(() => {
+                socket.ping()
+            }, 3000)
         });
 
         socket.on("error", (reason: Error) => {
@@ -169,7 +175,7 @@ export class Application {
         socket.on('close', (code: number, reason: Buffer) => {
             node.socket = null
 
-            const retry_timeout = Math.min(3000 * Math.pow(2, retry), 30000)
+            const retry_timeout = Math.min(3000 * Math.pow(2, retry), 20000)
 
             if (connecting) {
                 console.log(`connect node[${node.name}] error,retry after ${retry_timeout / 1000} seconds`);
@@ -178,6 +184,8 @@ export class Application {
                 console.log('Disconnected from server', node.name);
             }
             retry++
+
+            clearInterval(timer)
             setTimeout(this.connect_node.bind(this, node, retry), retry_timeout)
         });
     }
@@ -671,6 +679,14 @@ export class Application {
                     res.end("Unauthorized");
                     return;
                 }
+
+                const pass = site.auth.get(credentials.username)
+
+                if (pass != credentials.password) {
+                    res.writeHead(401, "Unauthorized")
+                    res.end()
+                    return
+                }
             }
 
             req.socket.setKeepAlive(true)
@@ -685,42 +701,42 @@ export class Application {
             }
             location(req, res)
         })
-        server.on("upgrade", (req, socket, head) => {
-            let site = get_site(req)
-            if (site == null) {
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
-                return;
-            }
+        // server.on("upgrade", (req, socket, head) => {
+        //     let site = get_site(req)
+        //     if (site == null) {
+        //         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //         socket.destroy();
+        //         return;
+        //     }
 
-            if (site.auth.size > 0) {
-                const credentials = basic_auth(req)
-                if (credentials == null) {
-                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                    socket.destroy();
-                    return;
-                }
+        //     if (site.auth.size > 0) {
+        //         const credentials = basic_auth(req)
+        //         if (credentials == null) {
+        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //             socket.destroy();
+        //             return;
+        //         }
 
-                const pass = site.auth.get(credentials.username)
+        //         const pass = site.auth.get(credentials.username)
 
-                if (pass != credentials.password) {
-                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                    socket.destroy();
-                    return
-                }
-            }
-            const location = site.locations.get(req.url)    //location
-            if (location == null || !location.ws) {
-                socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
-                socket.destroy();
-                return;
-            }
-            req.socket.setTimeout(0);
-            req.socket.setNoDelay(true);
-            req.socket.setKeepAlive(true, 0);
+        //         if (pass != credentials.password) {
+        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //             socket.destroy();
+        //             return
+        //         }
+        //     }
+        //     const location = site.locations.get(req.url)    //location
+        //     if (location == null || !location.ws) {
+        //         socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
+        //         socket.destroy();
+        //         return;
+        //     }
+        //     req.socket.setTimeout(0);
+        //     req.socket.setNoDelay(true);
+        //     req.socket.setKeepAlive(true, 0);
 
-            location(req, socket, head)
-        })
+        //     location(req, socket, head)
+        // })
 
         server.listen(server.port, () => {
             console.log("http listening:", server.port)

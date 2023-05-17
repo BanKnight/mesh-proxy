@@ -172,8 +172,7 @@ export class Tunnel extends Duplex {
     }
 }
 
-export type Location = ((...args: any[]) => void) & { ws?: boolean }
-
+export type Location = (req: http.IncomingMessage, res: http.ServerResponse) => void
 export interface SiteInfo {
     host: string;
     // callback?: (...args: any[]) => void;
