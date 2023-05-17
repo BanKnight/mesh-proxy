@@ -65,7 +65,7 @@ export default class Socks5 extends Component {
         if (noauth) {
             response[1] = RFC_1928_METHODS.NO_AUTHENTICATION_REQUIRED;
             tunnel.write(response.subarray(0, 2))
-            tunnel.once('data', this.connect.bind(this, tunnel, source));
+            tunnel.once('data', this.connect_remote.bind(this, tunnel, source));
         }
         else {
             if (methods.indexOf(RFC_1928_METHODS.BASIC_AUTHENTICATION) == -1) {
@@ -126,10 +126,10 @@ export default class Socks5 extends Component {
 
         tunnel.pendings = null
         tunnel.removeAllListeners("data")
-        tunnel.on('data', this.connect.bind(this, tunnel, source));
+        tunnel.on('data', this.check_cmd.bind(this, tunnel, source));
     }
 
-    connect<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+    check_cmd<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
 
         if (tunnel.pendings == null) {
             tunnel.pendings = buffer
@@ -224,25 +224,21 @@ export default class Socks5 extends Component {
 
     on_cmd_connect(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
 
-        const next = this.create_tunnel()
-
-        function destroy() {
-            tunnel.destroy()
-            next.destroy()
-        }
-
-        tunnel.on("error", destroy)
-        tunnel.on("close", destroy)
-
-        next.on("error", destroy)
-        next.on("close", destroy)
-
-        next.connect(this.options.passes.tcp, source, dest, () => {
+        this.connect_remote(this.options.passes.tcp, source, dest, (error: Error | undefined, next?: Tunnel) => {
 
             resp[1] = RFC_1928_REPLIES.SUCCEEDED
             tunnel.write(resp)
 
-            resp = null
+            function destroy() {
+                tunnel.destroy()
+                next.destroy()
+            }
+
+            tunnel.on("error", destroy)
+            tunnel.on("close", destroy)
+
+            next.on("error", destroy)
+            next.on("close", destroy)
 
             tunnel.pipe(next)
             next.pipe(tunnel)

@@ -5,7 +5,7 @@ import http from "http"
 import https from "https"
 import tls, { SecureContextOptions } from 'tls';
 import ws from "ws"
-import { Duplex, Readable, Writable } from "stream";
+import { Duplex, DuplexOptions, Readable, Writable } from "stream";
 declare module "net"
 {
     interface Socket {
@@ -72,6 +72,7 @@ export class Component extends EventEmitter {
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
+    connect_remote: (remote: string, source: any, destination: any, callback: Function) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()
@@ -104,35 +105,45 @@ export class Component extends EventEmitter {
 }
 
 export class Tunnel extends Duplex {
+
+
     id: string;
     destination: string;
     io: (event: string, ...args: any[]) => void;
+    // connect: (destination: string, ...args: any[]) => void;
 
-    constructor(id?: string) {
-        super({})
+    constructor(id?: string, options?: DuplexOptions) {
+        super({
+            ...options,
+            autoDestroy: false,
+            emitClose: false,
+            objectMode: false,
+            writableObjectMode: false
+        })
         this.id = id || randomUUID();
     }
-    _read() { }
-    _write(chunk: any, encoding: any, callback: any) {
-        this.io("write", this, chunk)
-        callback();
-    }
+    // _read() { }
+    // _write(chunk: any, encoding: any, callback: any) {
+    //     this.io("write", this, chunk)
+    //     callback();
+    // }
 
     send(event: string, ...args: any[]) {
         this.io("message", this, event, ...args)
     }
 
-    connect(destination: string, ...args: any[]) {
-        this.destination = destination
+    // connect(destination: string, ...args: any[]) {
+    //     this.destination = destination
 
-        const cb = args[args.length - 1]
-        if (cb && typeof (cb) == "function") {
-            args.pop()
-            this.once("connect", cb)
-        }
+    //     const cb = args[args.length - 1]
+    //     if (cb && typeof (cb) == "function") {
+    //         args.pop()
+    //         this.once("connect", cb)
+    //     }
 
-        this.io("connect", this, destination, ...args)
-    }
+    //     this.io("connect", this, destination, ...args)
+    // }
+
     destroy(error?: Error): this {
         if (this.destroyed) {
             return this

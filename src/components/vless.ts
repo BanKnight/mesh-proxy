@@ -30,7 +30,10 @@ export default class Vless extends Component {
     // 00                   00                                  01                 01bb(443)   02(ip/host)
     // 1 字节	              1 字节	      N 字节	         Y 字节
     // 协议版本，与请求的一致	附加信息长度 N	附加信息 ProtoBuf	响应数据
-    connection<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any) {
+    connection<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, callback: Function) {
+
+        callback()
+
         tunnel.on("data", this.head.bind(this, tunnel, source))
     }
 
@@ -178,15 +181,11 @@ export default class Vless extends Component {
             return
         }
 
-        const next = this.create_tunnel()
+        this.connect_remote(pass, source, dest, (error: Error | undefined, next?: Tunnel) => {
 
-        function destroy() {
-            tunnel.destroy()
-            next.destroy()
-        }
-
-        next.connect(pass, source, dest, () => {
-
+            if (error) {
+                return
+            }
             tunnel.write(resp)
 
             if (head.length > 0) {
@@ -195,9 +194,8 @@ export default class Vless extends Component {
 
             tunnel.pipe(next)
             next.pipe(tunnel)
-        })
 
-        next.once("error", destroy)
+        })
     }
 
     udp(tunnel: Tunnel, source: any, dest: any, head: Buffer) {

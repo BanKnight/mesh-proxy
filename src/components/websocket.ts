@@ -70,22 +70,24 @@ export default class Tcp extends Component {
 
             socket.id = `${this.name}/${++this.id}`
 
-            this.sockets[socket.id] = socket
-
-            const tunnel = this.create_tunnel()
-
-            this.on_new_socket(socket, tunnel)
-
-            tunnel.connect(this.options.pass,
+            this.connect_remote(this.options.pass,
                 {
                     address: req.socket.remoteAddress,
                     port: req.socket.remotePort
-                }
-            )
+                }, null,
+                (error: Error | undefined, tunnel: Tunnel) => {
 
-            req.socket.setKeepAlive(true)
-            req.socket.setNoDelay(true)
-            req.socket.setTimeout(3000)
+                    if (error) {
+                        socket.close()
+                        return
+                    }
+
+                    req.socket.setKeepAlive(true)
+                    req.socket.setNoDelay(true)
+                    req.socket.setTimeout(3000)
+
+                    this.on_new_socket(socket, tunnel)
+                })
         });
 
         http_or_https.listen(this.options.port, () => {

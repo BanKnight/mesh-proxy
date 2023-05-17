@@ -53,35 +53,7 @@ export default class Http extends Component {
     make_req_pass(path: string, location: any) {
         return (req: http.IncomingMessage, res: http.ServerResponse) => {
 
-            // 连接到远端服务器，并发起 HTTP 请求
-            const tunnel = this.create_tunnel()
-
-            // 处理 socket 连接过程中的错误
-            tunnel.on('error', (e: Error) => {
-                // console.error(`连接出错: ${e.message}`);
-                req.destroy()
-                tunnel.destroy()
-            });
-
-            tunnel.on('close', (e: Error) => {
-                // console.error(`连接出错: ${e.message}`);
-                req.destroy()
-                tunnel.destroy()
-            });
-
-            req.on('error', (e: Error) => {
-                // console.error(`连接出错: ${e.message}`);
-                req.destroy()
-                tunnel.destroy()
-            });
-
-            tunnel.on('close', (e: Error) => {
-                // console.error(`连接出错: ${e.message}`);
-                req.destroy()
-                tunnel.destroy()
-            });
-
-            tunnel.connect(location.pass, {
+            this.connect_remote(location.pass, {
                 method: req.method,
                 headers: req.headers,
                 rawHeaders: req.rawHeaders,
@@ -93,12 +65,17 @@ export default class Http extends Component {
                     remoteAddress: req.socket.remoteAddress,
                     remotePort: req.socket.remotePort,
                 }
-            }, (resp: any) => {
 
+            }, null, (error: Error | undefined, tunnel: Tunnel | undefined, resp: any) => {
                 // // 组装 HTTP 请求头和正文
                 // const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
                 // // 将 HTTP 请求头和正文发送给远端服务器
                 // tunnel.write(requestData);
+
+                if (error) {
+                    req.destroy()
+                    return
+                }
 
                 if (!res.headersSent) {
                     for (let name in resp.headers) {
@@ -108,12 +85,38 @@ export default class Http extends Component {
                     res.writeHead(resp.statusCode, resp.statusMessage)
                 }
 
-                tunnel.pipe(res);
-            })
+                // 处理 socket 连接过程中的错误
+                tunnel.on('error', (e: Error) => {
+                    // console.error(`连接出错: ${e.message}`);
+                    req.destroy()
+                    tunnel.destroy()
+                });
 
-            req.pipe(tunnel);
-            req.on("end", () => {
-                console.log("req end")
+                tunnel.on('close', (e: Error) => {
+                    // console.error(`连接出错: ${e.message}`);
+                    req.destroy()
+                    tunnel.destroy()
+                });
+
+                req.on('error', (e: Error) => {
+                    // console.error(`连接出错: ${e.message}`);
+                    req.destroy()
+                    tunnel.destroy()
+                });
+
+                tunnel.on('close', (e: Error) => {
+                    // console.error(`连接出错: ${e.message}`);
+                    req.destroy()
+                    tunnel.destroy()
+                });
+
+
+                req.on("end", () => {
+                    console.log("req end")
+                })
+
+                req.pipe(tunnel).pipe(res)
+                tunnel.pipe(res);
             })
         }
     }
@@ -122,9 +125,7 @@ export default class Http extends Component {
 
         return (req: http.IncomingMessage, res: http.ServerResponse) => {
 
-            const tunnel = this.create_tunnel()
-
-            tunnel.connect(location.pass, {
+            this.connect_remote(location.pass, {
                 protocol: "http",
                 ssl: this.options.ssl,
                 upgrade: "websocket",
@@ -134,7 +135,7 @@ export default class Http extends Component {
                 url: req.url,
                 address: req.socket.remoteAddress,
                 port: req.socket.remotePort,
-            }, () => {
+            }, null, (error: Error | undefined, tunnel?: Tunnel) => {
 
                 this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WebSocket, req) => {
 

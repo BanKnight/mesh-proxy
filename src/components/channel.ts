@@ -45,9 +45,9 @@ export default class Channel extends Component {
             remote.on("error", destroy)
             remote.on("close", destroy)
 
-            return new Promise((resolve) => {
-                remote.connect(this.options.pass, ...args, resolve)
-            })
+            // return new Promise((resolve) => {
+            //     remote.connect(this.options.pass, ...args, resolve)
+            // })
         })
     }
 

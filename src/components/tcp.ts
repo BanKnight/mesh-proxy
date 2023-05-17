@@ -46,15 +46,11 @@ export default class Tcp extends Component {
 
             socket.id = `${this.name}/${++this.id}`
 
-            this.sockets[socket.id] = socket
-
-            const tunnel = this.create_tunnel()
-
-            this.on_new_socket(socket, tunnel)
-
-            tunnel.connect(this.options.pass,
-                { address: socket.remoteAddress, port: socket.remotePort }
-            )
+            this.connect_remote(this.options.pass,
+                { address: socket.remoteAddress, port: socket.remotePort }, null,
+                (error: Error | undefined, tunnel: Tunnel) => {
+                    this.on_new_socket(socket, tunnel)
+                })
         })
 
         this.server.on('error', (e: any) => {

@@ -23,6 +23,7 @@ export class Application {
     httpservers = new Map<number, HttpServer>()
     nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
     tunnels: Record<string, Tunnel> = {}
+    pendings: Record<string, { tunnel: Tunnel, callback: Function }> = {}
     pairs: Record<string, Tunnel> = {}
 
     components: Record<string, Constructable<Component>> = {}
@@ -211,6 +212,7 @@ export class Application {
             component.name = names[1]
             component.options = options
             component.create_site = this.create_site.bind(this)
+            component.connect_remote = this.connect_component.bind(this, component)
 
             node.components[component.name] = component
 
@@ -231,110 +233,6 @@ export class Application {
     }
 
     prepare_node(node: Node) {
-
-        node.on("tunnel::connect", async (tunnel: Tunnel, destination: string, ...args: any[]) => {
-            const names = destination.split("/")
-            const target = this.nodes[names[0]]
-
-            console.log(this.name, "tunnel::connect", tunnel.id, destination)
-
-            if (target == null) {
-                tunnel.emit("error", new Error(`no such node: ${names[0]}`))
-                return
-            }
-            if (target.socket) {
-                this.tunnels[tunnel.id] = tunnel
-                target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
-                return
-            }
-
-            const component = target.components[names[1]]
-
-            if (component == null) {
-                tunnel.emit("error", new Error(`no such component: ${destination}`))
-                return
-            }
-
-            const revert = component.create_tunnel()
-
-            console.log(this.name, "tunnel::revert", revert.id)
-
-            this.tunnels[tunnel.id] = tunnel
-            this.tunnels[revert.id] = revert
-
-            this.pairs[tunnel.id] = revert
-            this.pairs[revert.id] = tunnel
-
-            const first_handler = component.listeners("connection")[0]
-
-            if (first_handler) {
-                const result = await first_handler(revert, ...args)
-                tunnel.emit("connect", result)
-            }
-        })
-
-        //本端发出事件
-        node.on("tunnel::message", (tunnel: Tunnel, event: string, ...args: any[]) => {
-
-            if (tunnel.destination == null) {
-                let other = this.pairs[tunnel.id]
-                other?.emit(event, ...args)
-                return
-            }
-
-            const names = tunnel.destination.split("/")
-            const target = this.nodes[names[0]]
-
-            if (target == null) {
-                tunnel.destroy(new Error(`no such node: ${names[0]}`))
-                return
-            }
-
-            if (target.socket) {
-                target.socket.write("tunnel::message", tunnel.id, event, ...args)
-                return
-            }
-
-            const other = this.pairs[tunnel.id]
-
-            if (other == null) {
-                tunnel.destroy(new Error(`no pair: ${names[0]}`))
-                return
-            }
-
-            other?.emit(event, ...args)
-        })
-
-        //本端发出write事件
-        node.on("tunnel::write", (tunnel: Tunnel, chunk: any) => {
-
-            if (tunnel.destination == null) {
-                let revert = this.pairs[tunnel.id]
-                revert?.push(chunk)
-                return
-            }
-
-            const names = tunnel.destination.split("/")
-            const target = this.nodes[names[0]]
-
-            if (target == null) {
-                tunnel.destroy(new Error(`no such node: ${names[0]}`))
-                return
-            }
-
-            if (target.socket) {
-                target.socket.write("tunnel::write", tunnel.id, chunk)
-                return
-            }
-
-            const other = this.pairs[tunnel.id]
-
-            if (other == null) {
-                tunnel.destroy(new Error(`no pair: ${names[0]}`))
-                return
-            }
-            other.push(chunk)
-        })
 
         //本端发出write事件
         node.on("tunnel::end", (tunnel: Tunnel, chunk?: unknown) => {
@@ -403,6 +301,59 @@ export class Application {
         })
     }
 
+    connect_component(destination: string, ...args: any[]) {
+
+        const names = destination.split("/")
+        const target = this.nodes[names[0]]
+
+        const callback: (error?: Error, tunnel?: Tunnel, ...args: any[]) => void = args.pop()
+
+        if (target == null) {
+            callback(new Error(`no such node: ${names[0]}`))
+            return
+        }
+
+        const tunnel = new Tunnel()
+
+        console.log(this.name, "tunnel::connect", tunnel.id, destination)
+
+        if (target.socket) {
+            this.pendings[tunnel.id] = { tunnel, callback }
+            target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
+            return
+        }
+
+        const component = target.components[names[1]]
+
+        if (component == null) {
+            callback(new Error(`no such component: ${destination}`))
+            return
+        }
+
+        const revert = new Tunnel()
+
+        tunnel._write = (chunk, encoding, callback) => {
+            if (!revert.push(chunk, encoding)) {
+                tunnel.pause();
+            }
+            callback()
+        }
+
+        revert._write = (chunk, encoding, callback) => {
+            if (!tunnel.push(chunk, encoding)) {
+                tunnel.pause();
+            }
+            callback()
+        }
+
+        tunnel._read = () => { };
+        revert._read = () => { };
+
+        component.emit("connection", revert, ...args, callback)
+
+        return tunnel
+    }
+
     wrap_error(error?: Error) {
         if (error == null) {
             return
@@ -433,6 +384,7 @@ export class Application {
             component.node = that
             component.options = options
             component.create_site = this.create_site.bind(this)
+            component.connect_remote = this.connect_component.bind(this, component)
 
             that.components[component.name] = component
 
@@ -469,32 +421,52 @@ export class Application {
                 return
             }
 
-            const tunnel = component.create_tunnel(id)
+            const tunnel = new Tunnel(id)
 
             tunnel.destination = `${node.name}/?`
 
             this.tunnels[tunnel.id] = tunnel
+
+            tunnel._write = (chunk, encoding, callback) => {
+
+                node.socket.write("tunnel::write", id, chunk)
+
+                callback()
+            }
+
+            tunnel._read = () => { };
 
             //对端断开了，那么tunnel也要销毁
             node.socket.once("disconnect", () => {
                 tunnel.destroy(new Error(`remote node[${node.name}]disconnect`))
             })
 
-            const first_handler = component.listeners("connection")[0]
-            if (first_handler) {
-                const result = await first_handler(tunnel, ...args)
-                node.socket.write("tunnel::connection", id, result)
-            }
+            component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
+                node.socket.write("tunnel::connection", id, error, ...args)
+            })
         })
 
-        node.socket.on("tunnel::connection", (id: string, ...args: any[]) => {
-
-            const tunnel = this.tunnels[id]
-            if (tunnel == null) {
+        node.socket.on("tunnel::connection", (id: string, error?: any, ...args: any[]) => {
+            const pending = this.pendings[id]
+            if (pending == null) {
                 return
             }
-            tunnel.emit("connect", ...args)
+
+            delete this.pendings[id]
+
+            if (error) {
+                const e = new Error(error.message)
+
+                e.name = error.name;
+                e.stack = e.stack + '\n' + error.stack;
+
+                pending.callback(e)
+            }
+            else {
+                this.tunnels[id] = pending.tunnel
+            }
         })
+
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
@@ -759,6 +731,8 @@ export class Application {
 
         return server
     }
+
+
 }
 
 process.on("uncaughtException", (error: Error, origin: any) => {
