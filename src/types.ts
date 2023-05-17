@@ -32,6 +32,7 @@ export interface ComponentOption extends Record<string, any> {
     type: string;
 }
 
+
 export interface Config extends Record<string, any> {
     name: string;
     token?: string;
@@ -66,13 +67,16 @@ export interface SiteOptions {
     port?: number,
     ssl?: SecureContextOptions,
 }
+
+export type ConnectListener = (error?: Error, tunnel?: Tunnel, ...args: any[]) => void
+
 export class Component extends EventEmitter {
 
     node: Node
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
-    connect_remote: (remote: string, source: any, destination: any, callback: Function) => Tunnel;
+    connect_remote: (remote: string, source: any, destination: any, callback: ConnectListener) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()
@@ -83,32 +87,22 @@ export class Component extends EventEmitter {
     destroy(error?: Error) {
         this.emit('close', error)
     }
-    create_tunnel(id?: string) {
-
-        const tunnel = new Tunnel(id)
-
-        tunnel.io = (event: string, ...args: any[]) => {
-            this.node.emit(`tunnel::${event}`, ...args)
-        }
-
-        this.once("close", () => {
-            tunnel.destroy(new Error(`component[${this.name}] close`))
-        })
-
-        this.on("error", (error) => {
-            console.error("tunnel:error", error)
-        })
-
-        return tunnel
-    }
-
 }
 
+export type TunnelReadyState = 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed';
 export class Tunnel extends Duplex {
     id: string;
     destination: string;
 
     connecting = true
+    /**
+     * This property represents the state of the connection as a string.
+        If the stream is connecting socket.readyState is opening.
+        If the stream is readable and writable, it is open.
+        If the stream is readable and not writable, it is readOnly.
+        If the stream is not readable and writable, it is writeOnly.
+     */
+    readyState: TunnelReadyState = "opening"
 
     io: (event: string, ...args: any[]) => void;
 

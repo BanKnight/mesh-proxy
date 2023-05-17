@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "url"
 import { join, resolve, basename, dirname } from "path";
 import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
-import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions } from "./types.js";
+import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener } from "./types.js";
 import { basic_auth } from "./utils.js"
 import { Duplex } from "stream"
 
@@ -231,15 +231,14 @@ export class Application {
         this.prepare_node(node)
     }
 
-    prepare_node(node: Node) {
-    }
+    prepare_node(node: Node) { }
 
     connect_component(destination: string, ...args: any[]) {
 
         const names = destination.split("/")
         const target = this.nodes[names[0]]
 
-        const callback: (error?: Error, tunnel?: Tunnel, ...args: any[]) => void = args.pop()
+        const callback: ConnectListener = args.pop()
 
         if (target == null) {
             callback(new Error(`no such node: ${names[0]}`))
@@ -254,6 +253,7 @@ export class Application {
 
         if (target.socket) {
 
+            this.tunnels[tunnel.id] = tunnel
             this.pendings[tunnel.id] = { tunnel, callback }
 
             target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
@@ -272,6 +272,15 @@ export class Application {
                 target.socket.write("tunnel::close", tunnel.id, this.wrap_error(error))
                 callback(error)
             }
+
+            setTimeout(() => {
+                if (tunnel.readyState == "opening") {
+                    delete this.tunnels[tunnel.id]
+                    delete this.pendings[tunnel.id]
+                    callback(new Error("timeout"))
+                }
+            }, this.options.timeout || 3000)
+
             return
         }
 
@@ -311,25 +320,39 @@ export class Application {
 
         tunnel._final = (callback: (error?: Error | null) => void) => {
             callback()
+
+            revert.readyState = "writeOnly"
+            tunnel.readyState = "readOnly"
+
             revert.emit("end")
         }
 
         revert._final = (callback: (error?: Error | null) => void) => {
+
             callback()
+
+            tunnel.readyState = "writeOnly"
+            revert.readyState = "readOnly"
+
             tunnel.emit("end")
         }
+        tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            callback(error)
 
-        // tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-        //     callback(error)
-        //     revert.emit("close")
-        // }
+            tunnel.readyState = "closed"
 
-        // revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-        //     callback(error)
-        //     tunnel.emit("close")
-        // }
+            revert.emit("close")
+        }
 
-        tunnel.connecting = false
+        revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            revert.readyState = "closed"
+            callback(error)
+            tunnel.emit("close")
+        }
+
+        tunnel.connecting = revert.connecting = false
+        tunnel.readyState = revert.readyState = "open"
+
         component.emit("connection", revert, ...args, callback)
 
         return tunnel
@@ -405,6 +428,7 @@ export class Application {
             const tunnel = this.tunnels[id] = new Tunnel(id)
 
             tunnel.destination = `${node.name}/?`
+            tunnel.readyState = "open"
 
             tunnel._write = (chunk, encoding, callback) => {
                 node.socket.write("tunnel::data", id, chunk)
@@ -414,11 +438,13 @@ export class Application {
             tunnel._read = () => { };
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 node.socket.write("tunnel::final", id)
+                tunnel.readyState = "readOnly"
                 callback()
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
                 node.socket.write("tunnel::close", id, this.wrap_error(error))
+                tunnel.readyState = "closed"
                 callback(error)
             }
 
@@ -450,8 +476,10 @@ export class Application {
             }
             else {
                 this.tunnels[id] = pending.tunnel
+
+                pending.tunnel.connecting = false
+                pending.tunnel.readyState = "open"
             }
-            pending.tunnel.connecting = false
         })
 
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
@@ -470,8 +498,6 @@ export class Application {
             tunnel.push(chunk)
         })
 
-
-
         node.socket.on("tunnel::final", (id: string) => {
 
             const tunnel = this.tunnels[id]
@@ -481,20 +507,33 @@ export class Application {
 
             console.log(this.name, "tunnel::final,from", node.name, tunnel.id)
 
+            tunnel.readyState = "writeOnly"
             tunnel.emit("end")
         })
 
         node.socket.on("tunnel::error", (id: string, error: any) => {
+
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
                 return
             }
+
             const e = new Error(error.message)
 
             e.name = error.name;
             e.stack = e.stack + '\n' + error.stack;
 
-            tunnel.emit("error", e)
+            if (tunnel.connecting == false) {
+                tunnel.emit("error", e)
+            }
+
+            const pending = this.pendings[id]
+
+            if (pending) {
+                delete this.pendings[id]
+                pending.callback(error)
+            }
+
             console.error(e.message)
         })
 

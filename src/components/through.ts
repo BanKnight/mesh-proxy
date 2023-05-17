@@ -1,6 +1,6 @@
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
-export default class Channel extends Component {
+export default class Through extends Component {
     id: number = 0
 
     constructor(options: ComponentOption) {
@@ -12,7 +12,7 @@ export default class Channel extends Component {
 
     ready() {
 
-        this.on("connection", (tunnel: Tunnel, ...args: any[]) => {
+        this.on("connection", (tunnel: Tunnel, source: any, dest: any, callback: Function) => {
 
             if (this.options.show == true) {
                 tunnel.on("data", (data) => {
@@ -22,7 +22,6 @@ export default class Channel extends Component {
             }
 
             if (this.options.pass == null) {
-
                 tunnel.on("error", () => {
                     tunnel.destroy()
                 })
@@ -30,24 +29,16 @@ export default class Channel extends Component {
                 return
             }
 
-            const remote = this.create_tunnel()
+            this.connect_remote(this.options.pass, source, dest, (error: Error | null, remote?: Tunnel) => {
 
-            tunnel.pipe(remote)
-            remote.pipe(tunnel)
+                callback(...arguments)
 
-            function destroy() {
-                tunnel.destroy()
-                remote.destroy()
-            }
+                if (error) {
+                    return
+                }
 
-            tunnel.on("error", destroy)
-            tunnel.on("close", destroy)
-            remote.on("error", destroy)
-            remote.on("close", destroy)
-
-            // return new Promise((resolve) => {
-            //     remote.connect(this.options.pass, ...args, resolve)
-            // })
+                tunnel.pipe(remote).pipe(tunnel)
+            })
         })
     }
 
