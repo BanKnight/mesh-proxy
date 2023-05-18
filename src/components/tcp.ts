@@ -82,10 +82,10 @@ export default class Tcp extends Component {
         const host = this.options.connect?.substring(0, index)
         const port = this.options.connect?.substring(index + 1)
 
-        this.on("connection", (tunnel: Tunnel, info: any, destination: any) => {
+        this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
 
-            const target_host = destination?.address || host
-            const target_port = destination?.port || port
+            const target_host = context.dest?.address || host
+            const target_port = context.dest?.port || port
 
             console.log("on connection", target_host, target_port)
 
