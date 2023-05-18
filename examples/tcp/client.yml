@@ -8,9 +8,9 @@ components:
   - name: server/listen
     type: tcp
     listen: 8099
-    pass: server/connect
+    pass: client/connect
 
-  - name: server/connect
+  - name: client/connect
     type: tcp
     connect:
       host: 192.168.31.250
