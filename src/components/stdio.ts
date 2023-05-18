@@ -18,12 +18,12 @@ export default class Stdio extends Component {
             source: {}
         }
 
-        this.createConnection(this.options.pass, context, (error: Error | null, tunnel: Tunnel | null) => {
-            if (error) {
-                console.error(error)
-                return
-            }
+        const tunnel = this.createConnection(this.options.pass, context, (tunnel: Tunnel) => {
             process.stdin.pipe(tunnel)
+        })
+
+        tunnel.once("error", (e) => {
+            tunnel.destroy(e)
         })
     }
 

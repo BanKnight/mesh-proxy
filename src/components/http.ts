@@ -69,17 +69,7 @@ export default class Http extends Component {
 
                 }
             }
-
-            this.createConnection(location.pass, context, (error: Error | null, tunnel: Tunnel | null, resp: any) => {
-                // // 组装 HTTP 请求头和正文
-                // const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
-                // // 将 HTTP 请求头和正文发送给远端服务器
-                // tunnel.write(requestData);
-
-                if (error) {
-                    req.destroy()
-                    return
-                }
+            const tunnel = this.createConnection(location.pass, context, (resp: any) => {
 
                 if (!res.headersSent) {
                     for (let name in resp.headers) {
@@ -89,38 +79,14 @@ export default class Http extends Component {
                     res.writeHead(resp.statusCode, resp.statusMessage)
                 }
 
-                // 处理 socket 连接过程中的错误
-                tunnel.on('error', (e: Error) => {
-                    // console.error(`连接出错: ${e.message}`);
-                    req.destroy()
-                    tunnel.destroy()
-                });
-
-                tunnel.on('close', (e: Error) => {
-                    // console.error(`连接出错: ${e.message}`);
-                    req.destroy()
-                    tunnel.destroy()
-                });
-
-                req.on('error', (e: Error) => {
-                    // console.error(`连接出错: ${e.message}`);
-                    req.destroy()
-                    tunnel.destroy()
-                });
-
-                tunnel.on('close', (e: Error) => {
-                    // console.error(`连接出错: ${e.message}`);
-                    req.destroy()
-                    tunnel.destroy()
-                });
-
-
-                req.on("end", () => {
-                    console.log("req end")
-                })
-
                 req.pipe(tunnel).pipe(res)
-                tunnel.pipe(res);
+            })
+
+            tunnel.once("error", (e) => {
+                res.writeHead(502, e.message)
+                res.end()
+
+                tunnel.destroy(e)
             })
         }
     }
@@ -145,75 +111,43 @@ export default class Http extends Component {
                 }
             }
 
-            this.createConnection(location.pass, context, (error: Error | null, tunnel?: Tunnel) => {
-
-                if (error) {
-                    res.writeHead(502, error.message)
-                    res.end()
-                    return
-                }
+            const tunnel = this.createConnection(location.pass, context, () => {
 
                 this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WebSocket, req) => {
 
                     const duplex = createWebSocketStream(socket)
 
                     duplex.pipe(tunnel).pipe(duplex)
-
-                    // 连接到远端服务器，并发起 HTTP 请求
-                    tunnel.on("error", (reason) => {
-                        // socket.destroy(reason)
-                        tunnel.destroy(reason)
-                    })
                 })
 
             })
 
+            tunnel.once("error", (e) => {
+                res.writeHead(502, e.message)
+                res.end()
+
+                tunnel.destroy(e)
+            })
         }
     }
 
-    on_new_socket(socket: Duplex, tunnel: Tunnel) {
+    connection(tunnel: Tunnel, context: any) {
 
-        socket.pipe(tunnel)
-        tunnel.pipe(socket)
-
-        tunnel.on("error", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        tunnel.on("close", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        socket.on("error", () => {
-            socket.destroy()
-            tunnel.destroy()
-        })
-
-        socket.on("end", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        socket.on('close', (has_error) => { });
-    }
-
-    connection(tunnel: Tunnel, source: any) {
-
-        if (source.upgrade == "websocket") {
-            return this.pass_websocket(tunnel, source)
+        if (context.source.upgrade == "websocket") {
+            return this.pass_websocket(tunnel, context)
         }
         else {
-            return this.pass_request(tunnel, source)
+            return this.pass_request(tunnel, context)
         }
     }
 
-    pass_websocket(tunnel: Tunnel, source: any) {
+    pass_websocket(tunnel: Tunnel, context: any) {
 
     }
 
-    pass_request(tunnel: Tunnel, source: any) {
+    pass_request(tunnel: Tunnel, context: any) {
+
+        const source = context.source
 
         if (this.options.forward) {
             // If forward enable, so just pipe the request

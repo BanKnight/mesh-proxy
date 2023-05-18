@@ -67,7 +67,7 @@ export interface SiteOptions {
     ssl?: SecureContextOptions,
 }
 
-export type ConnectListener = (error?: Error, tunnel?: Tunnel, ...args: any[]) => void
+export type ConnectListener = (...args: any[]) => void
 
 export class Component extends EventEmitter {
 
@@ -75,7 +75,7 @@ export class Component extends EventEmitter {
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
-    createConnection: (address: string, context: { source: any, dest?: any }, callback: ConnectListener) => Tunnel;
+    createConnection: (address: string, context: { source: any, dest?: any }, callback?: ConnectListener) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()
@@ -116,8 +116,8 @@ export class Tunnel extends Duplex {
     constructor(id?: string, options?: DuplexOptions) {
         super({
             ...options,
-            autoDestroy: false,
-            emitClose: false,
+            autoDestroy: true,
+            // emitClose: false,
             objectMode: false,
             writableObjectMode: false
         })

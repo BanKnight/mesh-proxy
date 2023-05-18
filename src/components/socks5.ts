@@ -222,26 +222,24 @@ export default class Socks5 extends Component {
 
     on_cmd_connect(tunnel: CachedTunnel, context: any, resp: Buffer) {
 
-        this.createConnection(this.options.passes.tcp, context, (error: Error | undefined, next?: Tunnel) => {
-            if (error) {
-                resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
-                tunnel.write(resp)
-                return
-            }
-            function destroy() {
-                tunnel.destroy()
-                next.destroy()
-            }
+        const next = this.createConnection(this.options.passes.tcp, context, () => {
 
-            tunnel.on("error", destroy)
-            tunnel.on("close", destroy)
+            resp[1] = RFC_1928_REPLIES.SUCCEEDED
+            tunnel.write(resp)
 
-            next.on("error", destroy)
-            next.on("close", destroy)
-
-            tunnel.pipe(next)
-            next.pipe(tunnel)
+            tunnel.pipe(next).pipe(tunnel)
         })
+
+        next.once("error", (e) => {
+            if (next.readyState == "opening") {
+                resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+                tunnel.end(resp)
+            }
+
+            tunnel.destroy(e)
+            next.destroy()
+        })
+
     }
 
     on_cmd_udp(tunnel: CachedTunnel, context: any, resp: Buffer) {

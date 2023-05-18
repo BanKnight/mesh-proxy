@@ -22,7 +22,6 @@ export class Application {
     httpservers = new Map<number, HttpServer>()
     nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
     tunnels: Record<string, Tunnel> = {}
-    pendings: Record<string, { tunnel: Tunnel, callback: Function }> = {}
 
     components: Record<string, Constructable<Component>> = {}
 
@@ -236,20 +235,28 @@ export class Application {
 
     prepare_node(node: Node) { }
 
-    connect_component(from_component: Component, address: string, context: { source: any, dest: any }, callback: ConnectListener) {
+    connect_component(from_component: Component, address: string, context: { source: any, dest: any }, callback?: ConnectListener) {
 
         const names = address.split("/")
         const target = this.nodes[names[0]]
 
-        if (target == null) {
-            callback(new Error(`no such node: ${names[0]}`))
-            return
-        }
-
         const tunnel = new Tunnel()
 
-        let destroy = (id: string) => {
-            delete this.pendings[id]
+        if (callback) {
+            tunnel.once("connect", callback)
+        }
+
+        if (target == null) {
+            setImmediate(() => {
+                tunnel.destroy(new Error(`no such node: ${names[0]}`))
+            })
+            return tunnel
+        }
+
+        this.tunnels[tunnel.id] = tunnel
+
+        let destroy = (id: string, reason?: string) => {
+
             const existed = this.tunnels[id]
 
             if (!existed) {
@@ -258,21 +265,17 @@ export class Application {
 
             delete this.tunnels[id]
 
-            if (existed.readyState == "opening") {
-
-                callback(new Error(`connect ${address} timeout`))
-                tunnel.destroy()
+            if (reason) {
+                existed.destroy(new Error(reason))
             }
             else {
                 existed.destroy()
             }
         }
 
-        from_component.once("close", destroy.bind(null, tunnel.id))
+        from_component.once("close", destroy.bind(null, tunnel.id, "from componenet close"))
 
         if (target.socket) {
-
-            this.pendings[tunnel.id] = { tunnel, callback }
 
             target.socket.write("tunnel::connect", tunnel.id, address, context)
 
@@ -292,16 +295,18 @@ export class Application {
             }
 
             //对端断开了，那么tunnel也要销毁
-            target.socket.once("close", destroy.bind(null, tunnel.id))
+            target.socket.once("close", destroy.bind(null, tunnel.id, "target socket close"))
 
-            return
+            return tunnel
         }
 
         const component = target.components[names[1]]
 
         if (component == null) {
-            callback(new Error(`no such component: ${address}`))
-            return
+            setImmediate(() => {
+                tunnel.destroy(new Error(`connect error, such component: ${address}`))
+            })
+            return tunnel
         }
 
         const revert = new Tunnel()
@@ -361,16 +366,20 @@ export class Application {
             tunnel.emit("close")
         }
 
-        tunnel.connecting = revert.connecting = false
-        tunnel.readyState = revert.readyState = "open"
+        revert.connecting = false
+        revert.readyState = "open"
 
         component.once("close", destroy.bind(null, revert.id))
         component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
             if (error) {
-                callback(error)
+                tunnel.destroy(error)
                 return
             }
-            callback(error, tunnel, ...args)
+
+            tunnel.connecting = false
+            tunnel.readyState = "open"
+
+            tunnel.emit("connect", ...args)
         })
 
         return tunnel
@@ -455,23 +464,24 @@ export class Application {
 
             tunnel._read = () => { };
             tunnel._final = (callback: (error?: Error | null) => void) => {
-                node.socket?.write("tunnel::final", id)
                 tunnel.readyState = "readOnly"
                 callback()
+                node.socket?.write("tunnel::final", id)
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-                node.socket?.write("tunnel::close", id, this.wrap_error(error))
                 tunnel.readyState = "closed"
                 delete this.tunnels[id]
                 callback(error)
+                node.socket?.write("tunnel::close", id, this.wrap_error(error))
             }
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
-                node.socket?.write("tunnel::connection", id, error, ...args)
                 if (error) {
                     tunnel.destroy(error)
                 }
+
+                node.socket?.write("tunnel::connection", id, error, ...args)
             })
 
             let destroy = () => {
@@ -479,6 +489,7 @@ export class Application {
                 if (!existed) {
                     return
                 }
+                existed.end()
                 existed.destroy()
             }
 
@@ -489,15 +500,13 @@ export class Application {
 
         node.socket.on("tunnel::connection", (id: string, error?: any, ...args: any[]) => {
 
-            const pending = this.pendings[id]
-            if (pending == null) {
+            const tunnel = this.tunnels[id]
+            if (tunnel == null) {
                 if (!error) {
                     node.socket.write("tunnel::close", id)
                 }
                 return
             }
-
-            delete this.pendings[id]
 
             if (error) {
                 const e = new Error(error.message)
@@ -505,16 +514,14 @@ export class Application {
                 e.name = error.name;
                 e.stack = e.stack + '\n' + error.stack;
 
-                pending.callback(e)
-                pending.tunnel.destroy()
+                delete this.tunnels[id]
+
+                tunnel.destroy(e)
             }
             else {
-                this.tunnels[id] = pending.tunnel
-
-                pending.tunnel.connecting = false
-                pending.tunnel.readyState = "open"
-
-                pending.callback(null, pending.tunnel, ...args)
+                tunnel.connecting = false
+                tunnel.readyState = "open"
+                tunnel.emit("connect", ...args)
             }
         })
 
@@ -559,18 +566,7 @@ export class Application {
             e.name = error.name;
             e.stack = e.stack + '\n' + error.stack;
 
-            if (tunnel.connecting == false) {
-                tunnel.emit("error", e)
-            }
-
-            const pending = this.pendings[id]
-
-            if (pending) {
-                delete this.pendings[id]
-                pending.callback(error)
-            }
-
-            console.error(e.message)
+            tunnel.emit("error", e)
         })
 
         node.socket.on("tunnel::close", (id: string, error?: any) => {

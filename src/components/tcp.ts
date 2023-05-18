@@ -52,12 +52,22 @@ export default class Tcp extends Component {
                     }
                 }
             }
-            this.createConnection(this.options.pass, context, (error: Error | undefined, tunnel: Tunnel) => {
-                if (error) {
-                    socket.destroy(error)
-                    return
-                }
-                this.on_new_socket(socket, tunnel)
+            const tunnel = this.createConnection(this.options.pass, context, () => {
+                this.sockets[socket.id] = socket
+
+                socket.setKeepAlive(true)
+                socket.setNoDelay(true)
+
+                socket.pipe(tunnel).pipe(socket)
+                socket.on('close', (has_error) => {
+                    delete this.sockets[socket.id]
+                });
+            })
+
+            tunnel.once("error", (e) => {
+
+                // socket.destroy(e)
+                // tunnel.destroy()
             })
         })
 
@@ -81,8 +91,18 @@ export default class Tcp extends Component {
         this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
 
             const socket = createConnection(this.options.connect || context.dest, () => {
+
                 callback()
-                this.on_new_socket(socket, tunnel)
+
+                this.sockets[socket.id] = socket
+
+                socket.setKeepAlive(true)
+                socket.setNoDelay(true)
+
+                socket.pipe(tunnel).pipe(socket)
+                socket.on('close', (has_error) => {
+                    delete this.sockets[socket.id]
+                });
             })
 
             socket.once("error", (error: Error) => {
@@ -90,19 +110,10 @@ export default class Tcp extends Component {
                     callback(error)
                 }
             })
+
+            tunnel.on("error", (e) => {
+                console.error(e)
+            })
         })
-    }
-
-    on_new_socket(socket: Socket, tunnel: Tunnel) {
-
-        this.sockets[socket.id] = socket
-
-        socket.setKeepAlive(true)
-        socket.setNoDelay(true)
-
-        socket.pipe(tunnel).pipe(socket)
-        socket.on('close', (has_error) => {
-            delete this.sockets[socket.id]
-        });
     }
 }

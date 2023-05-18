@@ -22,12 +22,16 @@ export default class Through extends Component {
             tunnel.destroy()
             return
         }
-        this.createConnection(this.options.pass, context, (error: Error | null, remote?: Tunnel) => {
-            callback(error)
-            if (error) {
-                return
+        const next = this.createConnection(this.options.pass, context, () => {
+            callback()
+            tunnel.pipe(next).pipe(tunnel)
+        })
+
+        next.once("error", (e) => {
+            if (next.readyState == "opening") {
+                callback(e)
             }
-            tunnel.pipe(remote).pipe(tunnel)
+            tunnel.destroy()
         })
     }
 

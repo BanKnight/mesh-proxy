@@ -156,11 +156,7 @@ export default class Vless extends Component {
             return
         }
 
-        this.createConnection(pass, context, (error: Error | undefined, next?: Tunnel) => {
-            if (error) {
-                tunnel.destroy(error)
-                return
-            }
+        const next = this.createConnection(pass, context, () => {
 
             tunnel.write(resp)
 
@@ -168,9 +164,12 @@ export default class Vless extends Component {
                 next.write(head)
             }
 
-            tunnel.pipe(next)
-            next.pipe(tunnel)
+            tunnel.pipe(next).pipe(tunnel)
+        })
 
+        next.once("error", (e) => {
+            next.destroy()
+            tunnel.destroy(e)
         })
     }
 

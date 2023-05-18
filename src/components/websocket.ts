@@ -89,18 +89,23 @@ export default class Tcp extends Component {
                 }
             }, this.options.timeout || 10000)
 
-            this.createConnection(this.options.pass, context, (error: Error | undefined, tunnel?: Tunnel) => {
-
-                if (error) {
-                    socket.close()
-                    return
-                }
+            const tunnel = this.createConnection(this.options.pass, context, () => {
 
                 req.socket.setKeepAlive(true)
                 req.socket.setNoDelay(true)
                 req.socket.setTimeout(3000)
 
-                this.on_new_socket(duplex, tunnel)
+                duplex.pipe(tunnel).pipe(duplex)
+
+                duplex.on("error", (error) => {
+                    duplex.destroy(error)
+                    tunnel.destroy(error)
+                })
+            })
+
+            tunnel.once("error", (e) => {
+                socket.close()
+                tunnel.destroy()
             })
         });
 
@@ -137,33 +142,21 @@ export default class Tcp extends Component {
 
         socket.on("open", () => {
             callback()
+
             const duplex = ws.createWebSocketStream(socket)
-            this.on_new_socket(duplex, tunnel)
+
+            duplex.pipe(tunnel).pipe(duplex)
+
+            duplex.on("error", (error) => {
+                duplex.destroy(error)
+                tunnel.destroy(error)
+            })
         })
 
         socket.once("error", (error: Error) => {
             if (socket.readyState == WebSocket.CONNECTING) {
                 callback(error)
             }
-        })
-    }
-
-    on_new_socket(socket: Duplex, tunnel: Tunnel) {
-
-        socket.pipe(tunnel).pipe(socket)
-
-        socket.on("message", (data) => {
-            tunnel.push(data)
-        })
-
-        socket.on("error", (error) => {
-            socket.destroy(error)
-            tunnel.destroy(error)
-        })
-
-        tunnel.on("close", () => {
-            tunnel.destroy()
-            socket.destroy()
         })
     }
 }

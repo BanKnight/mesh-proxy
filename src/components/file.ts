@@ -21,13 +21,14 @@ export default class Tcp extends Component {
                 path: this.options.path
             }
         }
-        this.createConnection(this.options.pass, context, (error: Error | null, tunnel: Tunnel | null) => {
-            if (error) {
-                console.error(error)
-                return
-            }
+
+        const tunnel = this.createConnection(this.options.pass, context, () => {
             const stream = fs.createReadStream(this.options.path)
             stream.pipe(tunnel)
+        })
+
+        tunnel.once("error", (e) => {
+            tunnel.destroy(e)
         })
     }
 
