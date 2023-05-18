@@ -111,9 +111,9 @@ export default class Tcp extends Component {
                 }
             })
 
-            tunnel.on("error", (e) => {
-                console.error(e)
-            })
+            // tunnel.on("close", (e) => {
+            //     socket.destroy()
+            // })
         })
     }
 }

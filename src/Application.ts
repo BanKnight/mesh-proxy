@@ -484,18 +484,21 @@ export class Application {
                 node.socket?.write("tunnel::connection", id, error, ...args)
             })
 
-            let destroy = () => {
+            let destroy = (reason: string) => {
                 const existed = this.tunnels[id]
                 if (!existed) {
                     return
                 }
-                existed.end()
-                existed.destroy()
+
+                existed.emit("end")
+
+                // existed.end()
+                // existed.destroy()
             }
 
             //对端断开了，那么tunnel也要销毁
-            node.socket.once("close", destroy)
-            component.once("close", destroy)
+            node.socket.once("close", destroy.bind(null, "node close"))
+            component.once("close", destroy.bind(null, "component close"))
         })
 
         node.socket.on("tunnel::connection", (id: string, error?: any, ...args: any[]) => {
