@@ -49,7 +49,7 @@ export class Node extends EventEmitter {
     name: string
     url?: URL
     socket: WSocket
-    components: Record<string, Component> = {};  //[name] = compnent
+    components: Record<string, Component> = {};  //[name] = Component
 
     send(event: string, ...args: any[]) {
         if (this.socket) {
@@ -61,7 +61,6 @@ export class Node extends EventEmitter {
     }
 }
 
-
 export interface SiteOptions {
     host: string,
     port?: number,
@@ -70,11 +69,7 @@ export interface SiteOptions {
 
 export type ConnectListener = (error?: Error, tunnel?: Tunnel, ...args: any[]) => void
 
-interface a {
-    on(event: "connection", listener: (tunnel: Tunnel, source: any, dest: any, callback: ConnectListener) => void): this;
-}
-
-export class Component extends EventEmitter implements a {
+export class Component extends EventEmitter {
 
     node: Node
     name: string;
@@ -99,6 +94,13 @@ export class Tunnel extends Duplex {
     id: string;
     destination: string;
 
+    /**
+     * If `true`,`socket.connect(options[, connectListener])` was
+     * called and has not yet finished. It will stay `true` until the socket becomes
+     * connected, then it is set to `false` and the `'connect'` event is emitted. Note
+     * that the `socket.connect(options[, connectListener])` callback is a listener for the `'connect'` event.
+     * @since v6.1.0
+     */
     connecting = true
     /**
      * This property represents the state of the connection as a string.

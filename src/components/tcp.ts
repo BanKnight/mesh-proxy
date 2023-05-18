@@ -42,7 +42,9 @@ export default class Tcp extends Component {
         })
 
         this.server.on('connection', (socket: Socket) => {
+
             socket.id = `${this.name}/${++this.id}`
+
             const context = {
                 source: {
                     socket: {
@@ -78,51 +80,29 @@ export default class Tcp extends Component {
     connect() {
         this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
 
-            const socket = createConnection(context.dest || this.options.connect, () => {
-                this.sockets[socket.id] = socket
+            const socket = createConnection(this.options.connect || context.dest, () => {
                 callback()
                 this.on_new_socket(socket, tunnel)
             })
 
             socket.once("error", (error: Error) => {
-                if (socket.connecting) {
+                if (socket.pending) {
                     callback(error)
                 }
             })
-
         })
     }
 
     on_new_socket(socket: Socket, tunnel: Tunnel) {
 
+        this.sockets[socket.id] = socket
+
         socket.setKeepAlive(true)
+        socket.setNoDelay(true)
 
-        socket.pipe(tunnel)
-        tunnel.pipe(socket)
-
-        tunnel.on("error", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        tunnel.on("close", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        socket.on("error", () => {
-            socket.destroy()
-            tunnel.destroy()
-        })
-
-        socket.on("end", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
+        socket.pipe(tunnel).pipe(socket)
         socket.on('close', (has_error) => {
             delete this.sockets[socket.id]
         });
-
     }
 }

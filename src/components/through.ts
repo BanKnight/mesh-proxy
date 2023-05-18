@@ -1,15 +1,12 @@
 import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
 
 export default class Through extends Component {
-    id: number = 0
-
     constructor(options: ComponentOption) {
         super(options)
 
         this.on("ready", this.ready.bind(this))
         this.on("close", this.close.bind(this))
         this.on("connection", this.connection.bind(this))
-
     }
 
     ready() {
@@ -19,7 +16,7 @@ export default class Through extends Component {
         }
     }
 
-    connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: Tunnel, context: any, callback: Function) {
         if (this.options.pass == null) {
             callback(new Error(`"component[${this.name}] pass required`))
             tunnel.destroy()
@@ -30,7 +27,6 @@ export default class Through extends Component {
             if (error) {
                 return
             }
-
             tunnel.pipe(remote).pipe(tunnel)
         })
     }
