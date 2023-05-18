@@ -10,7 +10,6 @@ import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
 import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener } from "./types.js";
 import { basic_auth } from "./utils.js"
-import { Duplex } from "stream"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -233,7 +232,7 @@ export class Application {
 
     prepare_node(node: Node) { }
 
-    connect_component(address: string, context: { source: any, dest: any }, callback: ConnectListener) {
+    connect_component(from_component: Component, address: string, context: { source: any, dest: any }, callback: ConnectListener) {
 
         const names = address.split("/")
         const target = this.nodes[names[0]]
@@ -275,9 +274,9 @@ export class Application {
                 if (tunnel.readyState == "opening") {
                     delete this.tunnels[tunnel.id]
                     delete this.pendings[tunnel.id]
-                    callback(new Error("timeout"))
+                    callback(new Error(`connect ${address} timeout`))
                 }
-            }, this.options.timeout || 3000)
+            }, this.options.timeout || 10000)
 
             return
         }
@@ -443,6 +442,8 @@ export class Application {
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
                 node.socket.write("tunnel::close", id, this.wrap_error(error))
                 tunnel.readyState = "closed"
+                delete this.tunnels[id]
+
                 callback(error)
             }
 
@@ -453,6 +454,9 @@ export class Application {
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
                 node.socket.write("tunnel::connection", id, error, ...args)
+                if (error) {
+                    tunnel.destroy(error)
+                }
             })
         })
 

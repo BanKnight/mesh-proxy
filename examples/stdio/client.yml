@@ -1,0 +1,16 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+
+components:
+  - name: server/stdout
+    type: stdio
+  - name: client/stdin
+    type: stdio
+    input: true
+    pass: server/stdout
+
+
+

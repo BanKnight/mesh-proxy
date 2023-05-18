@@ -78,9 +78,9 @@ export default class Tcp extends Component {
 
     connect() {
 
-        const index = this.options.pass?.indexOf(":")
-        const host = this.options.pass?.substring(0, index)
-        const port = this.options.pass?.substring(index + 1)
+        const index = this.options.connect?.indexOf(":")
+        const host = this.options.connect?.substring(0, index)
+        const port = this.options.connect?.substring(index + 1)
 
         this.on("connection", (tunnel: Tunnel, info: any, destination: any) => {
 

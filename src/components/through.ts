@@ -13,12 +13,10 @@ export default class Through extends Component {
     }
 
     ready() {
-
         if (this.options.pass == null) {
             console.error(Error(`"component[${this.name}] pass required`))
             return
         }
-
     }
 
     connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
@@ -28,9 +26,7 @@ export default class Through extends Component {
             return
         }
         this.createConnection(this.options.pass, context, (error: Error | null, remote?: Tunnel) => {
-
             callback(error)
-
             if (error) {
                 return
             }

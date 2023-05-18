@@ -143,7 +143,7 @@ export default class Tcp extends Component {
 
         socket.once("error", (error: Error) => {
             if (socket.readyState == WebSocket.CONNECTING) {
-                callback()
+                callback(error)
             }
         })
     }
