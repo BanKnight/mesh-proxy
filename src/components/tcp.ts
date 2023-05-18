@@ -1,5 +1,4 @@
-import { Server, Socket, createServer, connect } from "net";
-import tls from "tls"
+import { Server, Socket, createServer, createConnection } from "net";
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
 export default class Tcp extends Component {
@@ -77,30 +76,20 @@ export default class Tcp extends Component {
     }
 
     connect() {
-
-        const index = this.options.connect?.indexOf(":")
-        const host = this.options.connect?.substring(0, index)
-        const port = this.options.connect?.substring(index + 1)
-
         this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
 
-            const target_host = context.dest?.address || host
-            const target_port = context.dest?.port || port
+            const socket = createConnection(context.dest || this.options.connect, () => {
+                this.sockets[socket.id] = socket
+                callback()
+                this.on_new_socket(socket, tunnel)
+            })
 
-            console.log("on connection", target_host, target_port)
+            socket.once("error", (error: Error) => {
+                if (socket.connecting) {
+                    callback(error)
+                }
+            })
 
-            if (target_host == null || target_port == null) {
-                tunnel.destroy(new Error(`unknown next pass in ${this.name}`))
-                return
-            }
-
-            const socket = new Socket()
-
-            this.sockets[socket.id] = socket
-
-            this.on_new_socket(socket, tunnel)
-
-            socket.connect(target_port, target_host)
         })
     }
 

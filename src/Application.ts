@@ -146,8 +146,6 @@ export class Application {
             socket.send(serialize({ event, args }))
         }
 
-        let timer = null
-
         socket.on('open', () => {
             connecting = false
             retry = 0
@@ -159,8 +157,16 @@ export class Application {
             this.prepare_node_socket(node)
             this.on_node_connected(node)
 
-            setInterval(() => {
-                socket.ping()
+            const timer = setInterval(() => {
+
+                if (socket.readyState == socket.CLOSED) {
+                    clearInterval(timer)
+                    return
+                }
+                else {
+                    socket.ping()
+                }
+
             }, 3000)
         });
 
@@ -183,8 +189,6 @@ export class Application {
                 console.log('Disconnected from server', node.name);
             }
             retry++
-
-            clearInterval(timer)
             setTimeout(this.connect_node.bind(this, node, retry), retry_timeout)
         });
     }
@@ -249,8 +253,6 @@ export class Application {
         console.log(this.name, "tunnel::connect", tunnel.id, address)
 
         if (target.socket) {
-
-            this.tunnels[tunnel.id] = tunnel
             this.pendings[tunnel.id] = { tunnel, callback }
 
             target.socket.write("tunnel::connect", tunnel.id, address, context)
@@ -272,8 +274,10 @@ export class Application {
 
             setTimeout(() => {
                 if (tunnel.readyState == "opening") {
+
                     delete this.tunnels[tunnel.id]
                     delete this.pendings[tunnel.id]
+
                     callback(new Error(`connect ${address} timeout`))
                 }
             }, this.options.timeout || 10000)
@@ -350,7 +354,14 @@ export class Application {
         tunnel.connecting = revert.connecting = false
         tunnel.readyState = revert.readyState = "open"
 
-        component.emit("connection", revert, context, callback)
+        component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
+            if (error) {
+                callback(error)
+                return
+            }
+
+            callback(error, tunnel, ...args)
+        })
 
         return tunnel
     }
@@ -370,7 +381,7 @@ export class Application {
         })
 
         node.socket.on("close", (code, reason) => {
-            console.log(`node[${node.name}]disconnected due to ${code} ${reason}`);
+            console.log(`node[${node.name}] disconnected due to ${code} ${reason}`);
             delete this.nodes[node.name]
         })
 
@@ -405,7 +416,7 @@ export class Application {
                 }
             }
 
-            node.socket.on("disconnect", on_disconnect)
+            node.socket.on("close", on_disconnect)
         })
 
         node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
@@ -448,7 +459,7 @@ export class Application {
             }
 
             //对端断开了，那么tunnel也要销毁
-            node.socket.once("disconnect", () => {
+            node.socket.once("close", () => {
                 tunnel.destroy(new Error(`destroy by remote node[${node.name}] disconnect`))
             })
 
@@ -461,8 +472,12 @@ export class Application {
         })
 
         node.socket.on("tunnel::connection", (id: string, error?: any, ...args: any[]) => {
+
             const pending = this.pendings[id]
             if (pending == null) {
+                if (!error) {
+                    node.socket.write("tunnel::close", id)
+                }
                 return
             }
 
@@ -474,13 +489,15 @@ export class Application {
                 e.name = error.name;
                 e.stack = e.stack + '\n' + error.stack;
 
-                pending.callback(e, ...args)
+                pending.callback(e)
             }
             else {
                 this.tunnels[id] = pending.tunnel
 
                 pending.tunnel.connecting = false
                 pending.tunnel.readyState = "open"
+
+                pending.callback(null, pending.tunnel, ...args)
             }
         })
 

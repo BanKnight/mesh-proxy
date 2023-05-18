@@ -121,60 +121,8 @@ export class Tunnel extends Duplex {
         })
         this.id = id || randomUUID();
     }
-    // _read() { }
-    // _write(chunk: any, encoding: any, callback: any) {
-    //     this.io("write", this, chunk)
-    //     callback();
-    // }
-
     send(event: string, ...args: any[]) {
         this.io("message", this, event, ...args)
-    }
-
-    // connect(destination: string, ...args: any[]) {
-    //     this.destination = destination
-
-    //     const cb = args[args.length - 1]
-    //     if (cb && typeof (cb) == "function") {
-    //         args.pop()
-    //         this.once("connect", cb)
-    //     }
-
-    //     this.io("connect", this, destination, ...args)
-    // }
-
-    destroy(error?: Error): this {
-        if (this.destroyed) {
-            return this
-        }
-
-        super.destroy(error)
-
-        this.io("destroy", this, error)
-
-        return this
-    }
-
-    end(chunk?: unknown): this {
-
-        if (this.writableEnded) {
-            return this
-        }
-
-        if (this.destroyed) {
-            return this
-        }
-
-        this.io("end", this, chunk)
-        return super.end(chunk)
-    }
-
-    on_message(event: string, listener: any) {
-        this.on(`message.${event}`, listener)
-    }
-
-    off_message(event: string, listener: any) {
-        this.off(`message.${event}`, listener)
     }
 }
 
