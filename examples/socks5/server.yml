@@ -7,7 +7,3 @@ auth:
   client: { token: "token" }
 
 components: []
-
-
-  
-

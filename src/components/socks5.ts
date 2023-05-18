@@ -1,4 +1,4 @@
-import { Component, ComponentOption, ConnectListener, CachedTunnel, Tunnel } from "../types.js";
+import { Component, ComponentOption, CachedTunnel, Tunnel } from "../types.js";
 
 export default class Socks5 extends Component {
 
@@ -23,11 +23,11 @@ export default class Socks5 extends Component {
     }
     close() { }
 
-    connection(tunnel: CachedTunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: CachedTunnel, context: any, callback: Function) {
 
         callback()
 
-        tunnel.next = this.handshake.bind(tunnel, context)
+        tunnel.next = this.handshake.bind(this, tunnel, context)
 
         tunnel.on("data", (buffer: Buffer) => {
             if (tunnel.pendings == null) {
@@ -157,7 +157,7 @@ export default class Socks5 extends Component {
         }
 
         const dest = {
-            address: "",
+            host: "",
             protocol: null,
             port: 0
         }
@@ -167,13 +167,13 @@ export default class Socks5 extends Component {
         switch (atyp) {
             case RFC_1928_ATYP.IPV4:
                 {
-                    dest.address = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
+                    dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
                 }
                 break
             case RFC_1928_ATYP.DOMAINNAME:
                 {
                     const size = buffer[offset++]
-                    dest.address = buffer.subarray(offset, offset += size).toString()
+                    dest.host = buffer.subarray(offset, offset += size).toString()
                 }
                 break
             case RFC_1928_ATYP.IPV6:
@@ -186,7 +186,7 @@ export default class Socks5 extends Component {
                         address.push(((x & 0xffff)).toString(16));
                     })
 
-                    dest.address = address.join(":")
+                    dest.host = address.join(":")
                 }
                 break
             default:
@@ -200,6 +200,8 @@ export default class Socks5 extends Component {
         tunnel.pendings = null
         tunnel.next = null
         tunnel.removeAllListeners("data")
+
+        context.dest = Object.assign(context.dest || {}, dest)
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:

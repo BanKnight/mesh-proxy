@@ -75,6 +75,10 @@ export class Application {
                     socket.emit(event, ...args)
                 })
 
+                socket.on("ping", () => {
+                    socket.pong()
+                })
+
                 socket.write = (event: string, ...args: any[]) => {
                     socket.send(serialize({ event, args }))
                 }
@@ -166,7 +170,7 @@ export class Application {
                     socket.ping()
                 }
 
-            }, 3000)
+            }, 1000)
         });
 
         socket.on("error", (reason: Error) => {
@@ -273,6 +277,8 @@ export class Application {
             }
         }
 
+        const id = tunnel.id
+
         from_component.once("close", destroy.bind(null, tunnel.id, "from componenet close"))
 
         if (target.socket) {
@@ -287,6 +293,7 @@ export class Application {
 
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 target.socket?.write("tunnel::final", tunnel.id)
+                delete this.tunnels[id]
                 callback()
             }
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -337,6 +344,9 @@ export class Application {
         };
 
         tunnel._final = (callback: (error?: Error | null) => void) => {
+
+            delete this.tunnels[id]
+
             callback()
 
             revert.readyState = "writeOnly"
@@ -372,7 +382,7 @@ export class Application {
         component.once("close", destroy.bind(null, revert.id))
         component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
             if (error) {
-                tunnel.destroy(error)
+                tunnel.emit("error", error)
                 return
             }
 
@@ -400,7 +410,7 @@ export class Application {
         })
 
         node.socket.on("close", (code, reason) => {
-            console.log(`node[${node.name}] disconnected due to ${code} ${reason}`);
+            console.log(`node[${node.name}] disconnected due to ${code} ${reason.toString("utf8")}`);
             delete this.nodes[node.name]
         })
 
@@ -465,23 +475,27 @@ export class Application {
             tunnel._read = () => { };
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 tunnel.readyState = "readOnly"
+                delete this.tunnels[id]
                 callback()
                 node.socket?.write("tunnel::final", id)
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-                tunnel.readyState = "closed"
-                delete this.tunnels[id]
-                callback(error)
+
                 node.socket?.write("tunnel::close", id, this.wrap_error(error))
+
+                tunnel.readyState = "closed"
+                callback(error)
             }
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
-                if (error) {
-                    tunnel.destroy(error)
-                }
 
-                node.socket?.write("tunnel::connection", id, error, ...args)
+                node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
+
+                if (error) {
+                    delete this.tunnels[id]
+                    tunnel.emit("error", error)
+                }
             })
 
             let destroy = (reason: string) => {
@@ -491,9 +505,6 @@ export class Application {
                 }
 
                 existed.emit("end")
-
-                // existed.end()
-                // existed.destroy()
             }
 
             //对端断开了，那么tunnel也要销毁
@@ -501,7 +512,7 @@ export class Application {
             component.once("close", destroy.bind(null, "component close"))
         })
 
-        node.socket.on("tunnel::connection", (id: string, error?: any, ...args: any[]) => {
+        node.socket.on("tunnel::connection", (id: string, error?: Error, ...args: any[]) => {
 
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
@@ -515,15 +526,16 @@ export class Application {
                 const e = new Error(error.message)
 
                 e.name = error.name;
-                e.stack = e.stack + '\n' + error.stack;
+                e.stack = error.stack;
 
                 delete this.tunnels[id]
 
-                tunnel.destroy(e)
+                tunnel.emit("error", e)
             }
             else {
                 tunnel.connecting = false
                 tunnel.readyState = "open"
+
                 tunnel.emit("connect", ...args)
             }
         })
@@ -551,7 +563,7 @@ export class Application {
                 return
             }
 
-            console.log(this.name, "tunnel::final,from", node.name, tunnel.id)
+            console.log(this.name, "tunnel::final from", node.name, tunnel.id)
 
             tunnel.readyState = "writeOnly"
             tunnel.emit("end")
@@ -574,27 +586,29 @@ export class Application {
 
         node.socket.on("tunnel::close", (id: string, error?: any) => {
 
-            console.log(this.name, "tunnel::destroy,from:", node.name, id)
-
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
                 return
             }
 
-            console.log("destroy", id, error)
+            console.log(this.name, "tunnel::destroy,from:", node.name, id)
 
             delete this.tunnels[id]
+
+            tunnel.emit("end")
 
             if (error) {
 
                 const e = new Error(error.message)
 
                 e.name = error.name;
-                e.stack = e.stack + '\n' + error.stack;
+                e.stack = error.stack;
 
-                tunnel.emit("error", e)
+                tunnel.destroy(e)
             }
-            tunnel.emit("close")
+            else {
+                tunnel.destroy()
+            }
         })
     }
 
