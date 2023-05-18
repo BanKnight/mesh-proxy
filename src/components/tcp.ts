@@ -16,11 +16,11 @@ export default class Tcp extends Component {
 
     ready() {
 
-        if (this.options.port) {
-            this.init_server()
+        if (this.options.listen) {
+            this.listen()
         }
         else {
-            this.init_client()
+            this.connect()
         }
     }
 
@@ -34,23 +34,30 @@ export default class Tcp extends Component {
         }
     }
 
-    init_server() {
+    listen() {
 
         this.server = createServer()
 
         this.server.on("listening", () => {
-            console.log(`${this.name} is listening ${this.options.port}`)
+            console.log(`component[${this.name}] is listening ${this.options.listen}`)
         })
 
         this.server.on('connection', (socket: Socket) => {
-
             socket.id = `${this.name}/${++this.id}`
-
-            this.connect_remote(this.options.pass,
-                { address: socket.remoteAddress, port: socket.remotePort }, null,
-                (error: Error | undefined, tunnel: Tunnel) => {
-                    this.on_new_socket(socket, tunnel)
-                })
+            const context = {
+                source: {
+                    socket: {
+                        remoteAddress: socket.remoteAddress, remotePort: socket.remotePort
+                    }
+                }
+            }
+            this.createConnection(this.options.pass, context, (error: Error | undefined, tunnel: Tunnel) => {
+                if (error) {
+                    socket.destroy(error)
+                    return
+                }
+                this.on_new_socket(socket, tunnel)
+            })
         })
 
         this.server.on('error', (e: any) => {
@@ -66,10 +73,10 @@ export default class Tcp extends Component {
             // }
         });
 
-        this.server.listen(this.options.port)
+        this.server.listen(this.options.listen)
     }
 
-    init_client() {
+    connect() {
 
         const index = this.options.pass?.indexOf(":")
         const host = this.options.pass?.substring(0, index)

@@ -211,7 +211,7 @@ export class Application {
             component.name = names[1]
             component.options = options
             component.create_site = this.create_site.bind(this)
-            component.connect_remote = this.connect_component.bind(this, component)
+            component.createConnection = this.connect_component.bind(this, component)
 
             node.components[component.name] = component
 
@@ -233,12 +233,10 @@ export class Application {
 
     prepare_node(node: Node) { }
 
-    connect_component(destination: string, ...args: any[]) {
+    connect_component(address: string, context: { source: any, dest: any }, callback: ConnectListener) {
 
-        const names = destination.split("/")
+        const names = address.split("/")
         const target = this.nodes[names[0]]
-
-        const callback: ConnectListener = args.pop()
 
         if (target == null) {
             callback(new Error(`no such node: ${names[0]}`))
@@ -249,14 +247,14 @@ export class Application {
 
         tunnel.connecting = true
 
-        console.log(this.name, "tunnel::connect", tunnel.id, destination)
+        console.log(this.name, "tunnel::connect", tunnel.id, address)
 
         if (target.socket) {
 
             this.tunnels[tunnel.id] = tunnel
             this.pendings[tunnel.id] = { tunnel, callback }
 
-            target.socket.write("tunnel::connect", tunnel.id, destination, ...args)
+            target.socket.write("tunnel::connect", tunnel.id, address, context)
 
             tunnel._read = () => { }
             tunnel._write = (chunk, encoding, callback) => {
@@ -287,7 +285,7 @@ export class Application {
         const component = target.components[names[1]]
 
         if (component == null) {
-            callback(new Error(`no such component: ${destination}`))
+            callback(new Error(`no such component: ${address}`))
             return
         }
 
@@ -353,7 +351,7 @@ export class Application {
         tunnel.connecting = revert.connecting = false
         tunnel.readyState = revert.readyState = "open"
 
-        component.emit("connection", revert, ...args, callback)
+        component.emit("connection", revert, context, callback)
 
         return tunnel
     }
@@ -388,7 +386,7 @@ export class Application {
             component.node = that
             component.options = options
             component.create_site = this.create_site.bind(this)
-            component.connect_remote = this.connect_component.bind(this, component)
+            component.createConnection = this.connect_component.bind(this, component)
 
             that.components[component.name] = component
 

@@ -70,13 +70,17 @@ export interface SiteOptions {
 
 export type ConnectListener = (error?: Error, tunnel?: Tunnel, ...args: any[]) => void
 
-export class Component extends EventEmitter {
+interface a {
+    on(event: "connection", listener: (tunnel: Tunnel, source: any, dest: any, callback: ConnectListener) => void): this;
+}
+
+export class Component extends EventEmitter implements a {
 
     node: Node
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
-    connect_remote: (remote: string, source: any, destination: any, callback: ConnectListener) => Tunnel;
+    createConnection: (address: string, context: { source: any, dest?: any }, callback: ConnectListener) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()
@@ -86,7 +90,8 @@ export class Component extends EventEmitter {
 
     destroy(error?: Error) {
         this.emit('close', error)
-    }
+    };
+
 }
 
 export type TunnelReadyState = 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed';
@@ -172,6 +177,8 @@ export class Tunnel extends Duplex {
         this.off(`message.${event}`, listener)
     }
 }
+
+export type CachedTunnel = Tunnel & { pendings?: Buffer, next?: Function }
 
 export type Location = (req: http.IncomingMessage, res: http.ServerResponse) => void
 export interface SiteInfo {

@@ -1,5 +1,5 @@
 import { stringify } from "uuid"
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectListener } from "../types.js";
 
 const resp = Buffer.from([0, 0])
 export default class Vless extends Component {
@@ -30,27 +30,31 @@ export default class Vless extends Component {
     // 00                   00                                  01                 01bb(443)   02(ip/host)
     // 1 字节	              1 字节	      N 字节	         Y 字节
     // 协议版本，与请求的一致	附加信息长度 N	附加信息 ProtoBuf	响应数据
-    connection<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, callback: Function) {
+    connection(tunnel: CachedTunnel, context: any, callback: ConnectListener) {
 
         callback()
 
-        tunnel.on("data", this.head.bind(this, tunnel, source))
+        tunnel.next = this.head.bind(tunnel, context)
+        tunnel.on("data", (buffer: Buffer) => {
+            if (tunnel.pendings == null) {
+                tunnel.pendings = buffer
+            }
+            else {
+                buffer.copy(tunnel.pendings, tunnel.pendings.length)
+            }
+            if (tunnel.next) {
+                tunnel.next()
+            }
+        })
     }
 
-    head<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+    head(tunnel: CachedTunnel, context: any) {
 
-        if (tunnel.pendings == null) {
-            tunnel.pendings = buffer
-        }
-        else {
-            buffer.copy(tunnel.pendings, tunnel.pendings.length)
-        }
+        const buffer = tunnel.pendings
 
-        if (tunnel.pendings.length < 24) {
+        if (buffer.length < 24) {
             return
         }
-
-        buffer = tunnel.pendings
 
         let offset = 0
 
@@ -101,11 +105,12 @@ export default class Vless extends Component {
         tunnel.pendings = null
         tunnel.removeAllListeners("data")
 
-        source = Object.assign({}, source, { user: userid, version })
+        const source = context.source = Object.assign(context.source || {}, { user: userid, version })
 
-        if (this.auth(tunnel, source, dest) == false) {
-            console.error(`component[${this.name}]:auth failed from ${source.address}:${source.port},userid:${userid}`)
-            tunnel.destroy(new Error(`component[${this.name}]:auth failed from ${source.address}:${source.port},userid:${userid}`))
+        if (this.auth(tunnel, context.source, context.dest) == false) {
+            const e = new Error(`component[${this.name}]:auth failed from ${source.socket?.remoteAddress}:${source.socket?.remotePort},userid:${userid}`)
+            console.error(e)
+            tunnel.destroy(e)
             return
         }
 
@@ -114,43 +119,19 @@ export default class Vless extends Component {
         switch (cmd) {
             case 0x01:      //tcp
                 dest.protocol = "tcp"
-                this.tcp(tunnel, source, dest, head)
+                this.tcp(tunnel, context, head)
                 break
             case 0x02:      //udp
                 dest.protocol = "udp"
-                this.udp(tunnel, source, dest, head)
+                this.udp(tunnel, context, head)
                 break
             case 0x03:      //mux
-                this.mux(tunnel, source, dest, head)
+                this.mux(tunnel, context, head)
                 break
             default:
                 tunnel.destroy(new Error(`unsupported type:${cmd}`))
                 break
         }
-
-        // const next = this.create_tunnel()
-
-        // tunnel.pipe(next)
-        // next.pipe(tunnel)
-
-        // function destroy() {
-        //     tunnel.destroy()
-        //     next.destroy()
-        // }
-
-        // tunnel.on("error", destroy)
-        // tunnel.on("close", destroy)
-        // next.on("error", destroy)
-        // next.on("close", destroy)
-
-        // next.connect(this.options.pass, source)
-
-        // next.send("target", {
-        //     version,
-        //     userid,
-        //     dest,
-        //     head: tunnel.pendings,
-        // })
     }
 
     auth(tunnel: Tunnel, source: any, dest: any) {
@@ -165,14 +146,8 @@ export default class Vless extends Component {
         }
 
         return true
-
-        // if (this.users.has(source.user) == false) {
-        //     console.error(`new such user:${source.user}`)
-        //     tunnel.destroy()
-        //     return
-        // }
     }
-    tcp(tunnel: Tunnel, source: any, dest: any, head: Buffer) {
+    tcp(tunnel: Tunnel, context: any, head: Buffer) {
 
         const pass = this.options.passes.tcp
 
@@ -181,11 +156,12 @@ export default class Vless extends Component {
             return
         }
 
-        this.connect_remote(pass, source, dest, (error: Error | undefined, next?: Tunnel) => {
-
+        this.createConnection(pass, context, (error: Error | undefined, next?: Tunnel) => {
             if (error) {
+                tunnel.destroy(error)
                 return
             }
+
             tunnel.write(resp)
 
             if (head.length > 0) {
@@ -198,11 +174,11 @@ export default class Vless extends Component {
         })
     }
 
-    udp(tunnel: Tunnel, source: any, dest: any, head: Buffer) {
+    udp(tunnel: Tunnel, context: any, head: Buffer) {
 
     }
 
-    mux(tunnel: Tunnel, source: any, dest: any, head: Buffer) {
+    mux(tunnel: Tunnel, context: any, head: Buffer) {
 
     }
 }

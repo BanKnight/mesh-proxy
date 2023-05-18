@@ -53,20 +53,24 @@ export default class Http extends Component {
     make_req_pass(path: string, location: any) {
         return (req: http.IncomingMessage, res: http.ServerResponse) => {
 
-            this.connect_remote(location.pass, {
-                method: req.method,
-                headers: req.headers,
-                rawHeaders: req.rawHeaders,
-                url: req.url,
-                httpVersion: req.httpVersion,
-                httpVersionMajor: req.httpVersionMajor,
-                httpVersionMinor: req.httpVersionMinor,
-                socket: {
-                    remoteAddress: req.socket.remoteAddress,
-                    remotePort: req.socket.remotePort,
-                }
+            const context = {
+                source: {
+                    method: req.method,
+                    headers: req.headers,
+                    rawHeaders: req.rawHeaders,
+                    url: req.url,
+                    httpVersion: req.httpVersion,
+                    httpVersionMajor: req.httpVersionMajor,
+                    httpVersionMinor: req.httpVersionMinor,
+                    socket: {
+                        remoteAddress: req.socket.remoteAddress,
+                        remotePort: req.socket.remotePort,
+                    }
 
-            }, null, (error: Error | undefined, tunnel: Tunnel | undefined, resp: any) => {
+                }
+            }
+
+            this.createConnection(location.pass, context, (error: Error | null, tunnel: Tunnel | null, resp: any) => {
                 // // 组装 HTTP 请求头和正文
                 // const requestData = `${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(req.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
                 // // 将 HTTP 请求头和正文发送给远端服务器
@@ -125,17 +129,29 @@ export default class Http extends Component {
 
         return (req: http.IncomingMessage, res: http.ServerResponse) => {
 
-            this.connect_remote(location.pass, {
-                protocol: "http",
-                ssl: this.options.ssl,
-                upgrade: "websocket",
-                method: req.method,
-                headers: req.headers,
-                rawHeaders: req.rawHeaders,
-                url: req.url,
-                address: req.socket.remoteAddress,
-                port: req.socket.remotePort,
-            }, null, (error: Error | undefined, tunnel?: Tunnel) => {
+            const context = {
+                source: {
+                    protocol: "http",
+                    ssl: this.options.ssl,
+                    upgrade: "websocket",
+                    method: req.method,
+                    headers: req.headers,
+                    rawHeaders: req.rawHeaders,
+                    url: req.url,
+                    socket: {
+                        remoteAddress: req.socket.remoteAddress,
+                        remotePort: req.socket.remotePort,
+                    }
+                }
+            }
+
+            this.createConnection(location.pass, context, (error: Error | null, tunnel?: Tunnel) => {
+
+                if (error) {
+                    res.writeHead(502, error.message)
+                    res.end()
+                    return
+                }
 
                 this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WebSocket, req) => {
 
@@ -183,7 +199,7 @@ export default class Http extends Component {
         socket.on('close', (has_error) => { });
     }
 
-    async connection(tunnel: Tunnel, source: any) {
+    connection(tunnel: Tunnel, source: any) {
 
         if (source.upgrade == "websocket") {
             return this.pass_websocket(tunnel, source)
@@ -197,7 +213,7 @@ export default class Http extends Component {
 
     }
 
-    async pass_request(tunnel: Tunnel, source: any) {
+    pass_request(tunnel: Tunnel, source: any) {
 
         if (this.options.forward) {
             // If forward enable, so just pipe the request

@@ -2,30 +2,29 @@ import * as http from 'http';
 import * as https from 'https';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import * as WebSocket from 'ws';
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import ws from 'ws';
+import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Duplex } from 'stream';
 
-type IdWsSocket = WebSocket & { id: string }
+type IdWsSocket = ws.WebSocket & { id: string }
 
 export default class Tcp extends Component {
     id: number = 0
-    server?: WebSocket.Server
-    sockets: Record<string, WebSocket> = {}        //[remote_id] = socket 
+    server?: ws.Server
+    sockets: Record<string, IdWsSocket> = {}        //[remote_id] = socket 
 
     constructor(options: ComponentOption) {
         super(options)
 
         this.on("ready", this.ready.bind(this))
         this.on("close", this.close.bind(this))
+        this.on("connection", this.connection.bind(this))
     }
 
     ready() {
 
-        if (this.options.port) {
+        if (this.options.listen) {
             this.listen()
-        }
-        else {
-            this.connect()
         }
     }
 
@@ -64,30 +63,45 @@ export default class Tcp extends Component {
             http_or_https = http.createServer()
         }
 
-        this.server = new WebSocket.Server({ server: http_or_https, path: this.options.path });
+        this.server = new ws.Server({ server: http_or_https, path: this.options.path });
 
-        this.server.on('connection', (socket: WebSocket & { id: string }, req: http.IncomingMessage) => {
+        this.server.on('connection', (socket: ws.WebSocket & { id: string }, req: http.IncomingMessage) => {
 
             socket.id = `${this.name}/${++this.id}`
 
-            this.connect_remote(this.options.pass,
-                {
-                    address: req.socket.remoteAddress,
-                    port: req.socket.remotePort
-                }, null,
-                (error: Error | undefined, tunnel: Tunnel) => {
-
-                    if (error) {
-                        socket.close()
-                        return
+            const context = {
+                source: {
+                    socket: {
+                        remoteAddress: req.socket.remoteAddress,
+                        remotePort: req.socket.remotePort
                     }
+                }
+            }
 
-                    req.socket.setKeepAlive(true)
-                    req.socket.setNoDelay(true)
-                    req.socket.setTimeout(3000)
+            const duplex = ws.createWebSocketStream(socket)
 
-                    this.on_new_socket(socket, tunnel)
-                })
+            const timer = setInterval(() => {
+                if (socket.readyState == socket.OPEN) {
+                    socket.ping()
+                }
+                else {
+                    clearInterval(timer)
+                }
+            }, this.options.timeout || 10000)
+
+            this.createConnection(this.options.pass, context, (error: Error | undefined, tunnel?: Tunnel) => {
+
+                if (error) {
+                    socket.close()
+                    return
+                }
+
+                req.socket.setKeepAlive(true)
+                req.socket.setNoDelay(true)
+                req.socket.setTimeout(3000)
+
+                this.on_new_socket(duplex, tunnel)
+            })
         });
 
         http_or_https.listen(this.options.port, () => {
@@ -107,62 +121,49 @@ export default class Tcp extends Component {
             // }
         });
     }
-    connect() {
-        this.on("connection", (tunnel: Tunnel, source: any, destination: any) => {
-            if (this.options.address == null) {
-                tunnel.destroy(new Error(`component[${this.name}]:no component`))
-                return
+    connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
+
+        if (this.options.address == null) {
+            const error = new Error(`component[${this.name}]:no component`)
+            callback(error)
+            return
+        }
+
+        const socket = new ws.WebSocket(this.options.url) as IdWsSocket
+
+        socket.id = `${this.name}/${++this.id}`
+
+        this.sockets[socket.id] = socket
+
+        socket.on("open", () => {
+            callback()
+            const duplex = ws.createWebSocketStream(socket)
+            this.on_new_socket(duplex, tunnel)
+        })
+
+        socket.once("error", (error: Error) => {
+            if (socket.readyState == WebSocket.CONNECTING) {
+                callback()
             }
-
-            console.log("on connection", source?.address, source?.port)
-
-            const socket = new WebSocket(this.options.address) as IdWsSocket
-
-            socket.id = `${this.name}/${++this.id}`
-
-            this.sockets[socket.id] = socket
-
-            this.on_new_socket(socket, tunnel)
         })
     }
 
-    on_new_socket(socket: IdWsSocket, tunnel: Tunnel) {
+    on_new_socket(socket: Duplex, tunnel: Tunnel) {
 
-        const timer = setInterval(() => {
-            if (socket.readyState == socket.OPEN) {
-                socket.ping()
-            }
-            else {
-                clearInterval(timer)
-            }
-        }, this.options.timeout || 10000)
+        socket.pipe(tunnel).pipe(socket)
 
         socket.on("message", (data) => {
             tunnel.push(data)
         })
 
-        tunnel.on("data", (data) => {
-            socket.send(data)
-        })
-
-        socket.on('close', () => {
-            tunnel.push(null);
-            tunnel.end();
-        });
-
-        tunnel.on("error", () => {
-            tunnel.destroy()
-            socket.close()
-        })
-
         socket.on("error", (error) => {
-            socket.close()
+            socket.destroy(error)
             tunnel.destroy(error)
         })
 
         tunnel.on("close", () => {
             tunnel.destroy()
-            socket.close()
+            socket.destroy()
         })
     }
 }

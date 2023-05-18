@@ -8,7 +8,7 @@ servers:
 components:
   - name: client/tcp
     type: tcp
-    port: 1080
+    listen: 1080
     pass: client/socks5
 
   - name: client/socks5

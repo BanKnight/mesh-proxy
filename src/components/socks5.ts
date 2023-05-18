@@ -1,4 +1,4 @@
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, CachedTunnel, Tunnel } from "../types.js";
 
 export default class Socks5 extends Component {
 
@@ -23,20 +23,28 @@ export default class Socks5 extends Component {
     }
     close() { }
 
-    connection<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any) {
-        tunnel.on("data", this.handshake.bind(this, tunnel, source))
+    connection(tunnel: CachedTunnel, context: any, callback: ConnectListener) {
+
+        callback()
+
+        tunnel.next = this.handshake.bind(tunnel, context)
+
+        tunnel.on("data", (buffer: Buffer) => {
+            if (tunnel.pendings == null) {
+                tunnel.pendings = buffer
+            }
+            else {
+                buffer.copy(tunnel.pendings, tunnel.pendings.length)
+            }
+            if (tunnel.next) {
+                tunnel.next()
+            }
+        })
     }
 
-    handshake<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+    handshake(tunnel: CachedTunnel, context: any) {
 
-        if (tunnel.pendings == null) {
-            tunnel.pendings = buffer
-        }
-        else {
-            buffer.copy(tunnel.pendings, tunnel.pendings.length)
-        }
-
-        buffer = tunnel.pendings
+        const buffer = tunnel.pendings
 
         if (buffer.length < 3) {
             return
@@ -58,38 +66,35 @@ export default class Socks5 extends Component {
         }
 
         tunnel.pendings = null
-        tunnel.removeAllListeners("data")
+        tunnel.next = null
 
         const noauth = this.users.size == 0
 
         if (noauth) {
             response[1] = RFC_1928_METHODS.NO_AUTHENTICATION_REQUIRED;
-            tunnel.write(response.subarray(0, 2))
-            tunnel.once('data', this.connect_remote.bind(this, tunnel, source));
+            tunnel.next = this.check_cmd.bind(this, tunnel, context)
         }
         else {
             if (methods.indexOf(RFC_1928_METHODS.BASIC_AUTHENTICATION) == -1) {
                 response[1] = RFC_1928_METHODS.NO_ACCEPTABLE_METHODS;
-                tunnel.end(response.subarray(0, 2))
             }
             else {
                 response[1] = RFC_1928_METHODS.BASIC_AUTHENTICATION;
-                tunnel.write(response.subarray(0, 2))
-                tunnel.once("data", this.authenticate.bind(this, tunnel, source))
+                tunnel.next = this.authenticate.bind(this, tunnel, context)
             }
+        }
+
+        tunnel.write(response.subarray(0, 2))
+
+        if (tunnel.next == null) {
+            tunnel.end()
+            return
         }
     }
 
-    authenticate<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+    authenticate(tunnel: CachedTunnel, context: any) {
 
-        if (tunnel.pendings == null) {
-            tunnel.pendings = buffer
-        }
-        else {
-            buffer.copy(tunnel.pendings, tunnel.pendings.length)
-        }
-
-        buffer = tunnel.pendings
+        const buffer = tunnel.pendings
 
         if (buffer.length < 3 + 2) {
             return
@@ -125,20 +130,12 @@ export default class Socks5 extends Component {
         tunnel.write(response.subarray(0, 2))
 
         tunnel.pendings = null
-        tunnel.removeAllListeners("data")
-        tunnel.on('data', this.check_cmd.bind(this, tunnel, source));
+        tunnel.next = this.check_cmd.bind(this, tunnel, context)
     }
 
-    check_cmd<T extends Tunnel & { pendings?: Buffer }>(tunnel: T, source: any, buffer: Buffer) {
+    check_cmd(tunnel: CachedTunnel, context: any) {
 
-        if (tunnel.pendings == null) {
-            tunnel.pendings = buffer
-        }
-        else {
-            buffer.copy(tunnel.pendings, tunnel.pendings.length)
-        }
-
-        buffer = tunnel.pendings
+        const buffer = tunnel.pendings
         if (buffer.length < 7 + 4) {
             return
         }
@@ -201,34 +198,36 @@ export default class Socks5 extends Component {
         dest.port = buffer.readUInt16BE(offset) as unknown as number
 
         tunnel.pendings = null
+        tunnel.next = null
         tunnel.removeAllListeners("data")
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:
-                this.on_cmd_bind(tunnel, source, dest, response)
+                this.on_cmd_bind(tunnel, context, response)
                 break
             case RFC_1928_COMMANDS.CONNECT:
                 dest.protocol = "tcp"
-                this.on_cmd_connect(tunnel, source, dest, response)
+                this.on_cmd_connect(tunnel, context, response)
                 break
             case RFC_1928_COMMANDS.UDP_ASSOCIATE:
-                this.on_cmd_udp(tunnel, source, dest, response)
+                this.on_cmd_udp(tunnel, context, response)
                 break
         }
     }
 
-    on_cmd_bind(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_bind(tunnel: CachedTunnel, context: any, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }
 
-    on_cmd_connect(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_connect(tunnel: CachedTunnel, context: any, resp: Buffer) {
 
-        this.connect_remote(this.options.passes.tcp, source, dest, (error: Error | undefined, next?: Tunnel) => {
-
-            resp[1] = RFC_1928_REPLIES.SUCCEEDED
-            tunnel.write(resp)
-
+        this.createConnection(this.options.passes.tcp, context, (error: Error | undefined, next?: Tunnel) => {
+            if (error) {
+                resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+                tunnel.write(resp)
+                return
+            }
             function destroy() {
                 tunnel.destroy()
                 next.destroy()
@@ -245,7 +244,7 @@ export default class Socks5 extends Component {
         })
     }
 
-    on_cmd_udp(tunnel: Tunnel, source: any, dest: any, resp: Buffer) {
+    on_cmd_udp(tunnel: CachedTunnel, context: any, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }
