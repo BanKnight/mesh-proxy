@@ -61,7 +61,7 @@ export class Node extends EventEmitter {
     }
 }
 
-export interface SiteOptions {
+export type SiteOptions = http.ServerOptions & {
     host: string,
     port?: number,
     ssl?: SecureContextOptions,

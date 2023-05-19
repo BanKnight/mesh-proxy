@@ -22,7 +22,7 @@ export class Application {
     options: Config
     httpservers = new Map<number, HttpServer>()
     nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
-    tunnels: Record<string, Tunnel> = {}
+    tunnels: Record<string, Tunnel> = {}       //用于给远程tunnel发过来的
 
     components: Record<string, Constructable<Component>> = {}
 
@@ -56,6 +56,16 @@ export class Application {
         if (this.options.port) {
             this.as_server()
         }
+
+        setInterval(() => {
+
+            let count = 0
+            for (let name in this.tunnels) {
+                count++
+            }
+
+            console.log("tunnels count", count)
+        }, 3000)
     }
 
     as_server() {
@@ -257,8 +267,6 @@ export class Application {
             return tunnel
         }
 
-        this.tunnels[tunnel.id] = tunnel
-
         let destroy = (id: string, reason?: string) => {
 
             const existed = this.tunnels[id]
@@ -287,6 +295,8 @@ export class Application {
 
         if (target.socket) {
 
+            this.tunnels[tunnel.id] = tunnel
+
             target.socket.write("tunnel::connect", tunnel.id, address, context)
 
             tunnel._read = () => { }
@@ -295,9 +305,9 @@ export class Application {
                 callback()
             }
 
+            //本方不再读数据
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 target.socket?.write("tunnel::final", tunnel.id)
-                delete this.tunnels[id]
                 callback()
             }
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -351,8 +361,6 @@ export class Application {
         };
 
         tunnel._final = (callback: (error?: Error | null) => void) => {
-
-            delete this.tunnels[id]
 
             callback()
 
@@ -414,6 +422,8 @@ export class Application {
 
     prepare_node_socket(node: Node) {
 
+        this.update_sites()
+
         node.socket.on("auth_failed", () => {
             console.error("auth_failed")
         })
@@ -421,6 +431,7 @@ export class Application {
         node.socket.on("close", (code, reason) => {
             console.log(`node[${node.name}] disconnected due to ${code} ${reason.toString("utf8")}`);
             delete this.nodes[node.name]
+            this.update_sites()
         })
 
         node.socket.on("regist", (options: ComponentOption) => {
@@ -487,13 +498,13 @@ export class Application {
             tunnel._read = () => { };
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 tunnel.readyState = "readOnly"
-                delete this.tunnels[id]
                 callback()
                 node.socket?.write("tunnel::final", id)
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
                 node.socket?.write("tunnel::close", id)
+                delete this.tunnels[id]
                 tunnel.readyState = "closed"
                 callback(error)
             }
@@ -569,6 +580,8 @@ export class Application {
             if (tunnel == null) {
                 return
             }
+
+            delete this.tunnels[id]
 
             // console.log(this.name, "tunnel::final from", node.name, tunnel.id)
 
@@ -674,12 +687,30 @@ export class Application {
         return site
     }
 
+    update_sites() {
+
+        for (const [port, server] of this.httpservers) {
+            for (let [domain, site] of server.sites) {
+                if (site.locations.size == 0 && site.upgrades.size == 0) {
+                    server.sites.delete(domain)
+                }
+            }
+
+            if (server.sites.size == 0) {
+                this.httpservers.delete(port)
+                server.close()
+                console.log("unlisten", port)
+            }
+        }
+    }
+
     create_http_server(options: SiteOptions) {
 
         let server: HttpServer
 
         if (options.ssl) {
             server = https.createServer({
+                ...options,
                 SNICallback: (servername, cb) => {
                     const site = server.sites.get(servername)
                     if (site) {
@@ -694,7 +725,7 @@ export class Application {
             server.ssl = true
         }
         else {
-            server = (http.createServer()) as HttpServer
+            server = http.createServer({ ...options }) as HttpServer
             server.port = options.port || 80
             server.ssl = false
         }

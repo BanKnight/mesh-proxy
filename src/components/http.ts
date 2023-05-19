@@ -28,6 +28,7 @@ export default class Http extends Component {
         }
 
         const site = this.create_site({
+            ...this.options.listen,
             host: this.options.host,
             port: this.options.port,
             ssl: this.options.ssl,
@@ -59,7 +60,6 @@ export default class Http extends Component {
             const location = this.options.locations[path]
 
             if (location.upgrade) {
-
                 this.site.upgrades.delete(path)
             }
             else {
@@ -101,9 +101,11 @@ export default class Http extends Component {
             })
 
             tunnel.once("error", (e) => {
-                res.writeHead(502, e.message)
-                res.end()
 
+                if (!res.headersSent) {
+                    res.writeHead(502, e.message)
+                    res.end()
+                }
                 tunnel.destroy(e)
             })
         }
@@ -149,21 +151,21 @@ export default class Http extends Component {
         }
     }
 
-    connection(tunnel: Tunnel, context: any) {
+    connection(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
 
         if (context.source.upgrade == "websocket") {
-            return this.pass_websocket(tunnel, context)
+            return this.pass_websocket(tunnel, context, callback)
         }
         else {
-            return this.pass_request(tunnel, context)
+            return this.pass_request(tunnel, context, callback)
         }
     }
 
-    pass_websocket(tunnel: Tunnel, context: any) {
+    pass_websocket(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
 
     }
 
-    pass_request(tunnel: Tunnel, context: any) {
+    pass_request(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
 
         const source = context.source
 
@@ -185,44 +187,36 @@ export default class Http extends Component {
         }
 
         const outoptions = this.req_options(source)
+        const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
 
-        return new Promise((resolve, reject) => {
+            callback(null, {
+                httpVersion: proxyRes.httpVersion,
+                statusCode: proxyRes.statusCode,
+                statusMessage: proxyRes.statusMessage,
+                rawHeaders: proxyRes.rawHeaders,
+                headers: proxyRes.headers,
+            })
 
-            const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
+            proxyRes.pipe(tunnel);
+        });
 
-                if (tunnel.writableFinished) {
-                    resolve(null)
-                    return
-                }
-
-                resolve({
-                    httpVersion: proxyRes.httpVersion,
-                    statusCode: proxyRes.statusCode,
-                    statusMessage: proxyRes.statusMessage,
-                    rawHeaders: proxyRes.rawHeaders,
-                    headers: proxyRes.headers,
-                })
-
-                proxyRes.pipe(tunnel);
+        // allow outgoing socket to timeout so that we could
+        // show an error page at the initial request
+        if (this.options.proxyTimeout) {
+            proxyReq.setTimeout(this.options.proxyTimeout, function () {
+                proxyReq.destroy();
             });
+        }
+        // Ensure we abort proxy if request is aborted
+        const destroy_handler = proxyReq.destroy.bind(proxyReq)
 
-            // allow outgoing socket to timeout so that we could
-            // show an error page at the initial request
-            if (this.options.proxyTimeout) {
-                proxyReq.setTimeout(this.options.proxyTimeout, function () {
-                    proxyReq.destroy();
-                });
-            }
-            // Ensure we abort proxy if request is aborted
-            const destroy_handler = proxyReq.destroy.bind(proxyReq)
+        tunnel.on('close', destroy_handler);
+        tunnel.on('error', destroy_handler);
 
-            tunnel.on('close', destroy_handler);
-            tunnel.on('error', destroy_handler);
+        tunnel.pipe(proxyReq);
 
-            tunnel.pipe(proxyReq);
-
-            proxyReq.on('error', console.error);
-        })
+        proxyReq.on('error', callback);
+        proxyReq.end()
     }
 
     req_options(req: any, forward?: string) {
