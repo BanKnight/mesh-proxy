@@ -374,18 +374,12 @@ export class Application {
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             tunnel.readyState = "closed"
             callback(error)
-            if (error) {
-                revert.emit("error", error)
-            }
             revert.emit("close")
         }
 
         revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             revert.readyState = "closed"
             callback(error)
-            if (error) {
-                tunnel.emit("error", error)
-            }
             tunnel.emit("close")
         }
 
@@ -499,20 +493,16 @@ export class Application {
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-
-                node.socket?.write("tunnel::close", id, this.wrap_error(error))
-
+                node.socket?.write("tunnel::close", id)
                 tunnel.readyState = "closed"
                 callback(error)
             }
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
-
                 node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
 
                 if (error) {
                     delete this.tunnels[id]
-                    tunnel.emit("error", error)
                 }
             })
 
@@ -521,7 +511,6 @@ export class Application {
                 if (!existed) {
                     return
                 }
-
                 existed.emit("end")
             }
 
