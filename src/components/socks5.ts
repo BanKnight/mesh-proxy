@@ -28,7 +28,6 @@ export default class Socks5 extends Component {
         callback()
 
         tunnel.next = this.handshake.bind(this, tunnel, context)
-
         tunnel.on("data", (buffer: Buffer) => {
             if (tunnel.pendings == null) {
                 tunnel.pendings = buffer
@@ -36,9 +35,7 @@ export default class Socks5 extends Component {
             else {
                 buffer.copy(tunnel.pendings, tunnel.pendings.length)
             }
-            if (tunnel.next) {
-                tunnel.next()
-            }
+            tunnel.next()
         })
     }
 
@@ -156,7 +153,7 @@ export default class Socks5 extends Component {
             return
         }
 
-        const dest = {
+        let dest = {
             host: "",
             protocol: null,
             port: 0
@@ -201,10 +198,11 @@ export default class Socks5 extends Component {
         tunnel.next = null
         tunnel.removeAllListeners("data")
 
-        context.dest = Object.assign(context.dest || {}, dest)
+        dest = context.dest = Object.assign(context.dest || {}, dest)
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:
+                dest.protocol = "bind"
                 this.on_cmd_bind(tunnel, context, response)
                 break
             case RFC_1928_COMMANDS.CONNECT:
@@ -212,6 +210,7 @@ export default class Socks5 extends Component {
                 this.on_cmd_connect(tunnel, context, response)
                 break
             case RFC_1928_COMMANDS.UDP_ASSOCIATE:
+                dest.protocol = "udp"
                 this.on_cmd_udp(tunnel, context, response)
                 break
         }
@@ -232,7 +231,7 @@ export default class Socks5 extends Component {
             tunnel.pipe(next).pipe(tunnel)
         })
 
-        next.once("error", (e) => {
+        next.on("error", (e) => {
             if (next.readyState == "opening") {
                 resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
                 tunnel.end(resp)

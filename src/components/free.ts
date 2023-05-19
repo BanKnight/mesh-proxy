@@ -1,9 +1,15 @@
-import { Server, Socket, createServer, connect } from "net";
+import { Socket, createConnection } from "net";
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
+interface Context {
+    dest: {
+        host: string,
+        port: number,
+        protocol: "tcp" | "udp"
+    }
+}
 export default class Free extends Component {
     id: number = 0
-    server?: Server
     sockets: Record<string, Socket> = {}        //[tunnel][remote_id] = socket 
 
     constructor(options: ComponentOption) {
@@ -20,8 +26,6 @@ export default class Free extends Component {
     }
 
     close(error?: Error) {
-        this.server?.removeAllListeners()
-        this.server?.close()
 
         for (let id in this.sockets) {
             const socket = this.sockets[id]
@@ -29,40 +33,44 @@ export default class Free extends Component {
         }
     }
 
-    connection() {
+    connection(tunnel: Tunnel, context: Context, callback: Function) {
 
-        this.on("connection", (tunnel: Tunnel, source: any, destination: { address: string, port: number, protocol?: "tcp" | "udp" }) => {
+        callback()
 
-            console.log("on connection", destination.address, destination.port)
+        const dest = context.dest
 
-            if (destination.port == null || destination.address == null) {
-                tunnel.destroy(new Error(`unknown next pass in ${this.name}`))
-                return
-            }
-
-            switch (destination.protocol) {
-                case "tcp":
-                    this.handle_tcp(tunnel, source, destination)
-                    break
-                case "udp":
-                    this.handle_tcp(tunnel, source, destination)
-                    break
-                default:
-                    tunnel.destroy(new Error(`unknown protocol type:${destination.protocol}`))
-                    break
-            }
-        })
+        switch (dest.protocol) {
+            case "tcp":
+                this.handle_tcp(tunnel, context)
+                break
+            case "udp":
+                this.handle_udp(tunnel, context)
+                break
+            default:
+                tunnel.destroy(new Error(`unknown protocol type:${dest.protocol}`))
+                break
+        }
     }
 
-    handle_tcp(tunnel: Tunnel, source: any, destination: { address: string, port: number, protocol?: "tcp" | "udp" }) {
+    handle_tcp(tunnel: Tunnel, context: Context) {
 
-        const socket = new Socket()
+        const socket = createConnection(context.dest)
+
+        socket.setKeepAlive(true)
+        socket.setNoDelay(true)
+
+        socket.pipe(tunnel).pipe(socket)
 
         this.sockets[socket.id] = socket
 
-        this.on_new_socket(socket, tunnel)
+        socket.on('close', (has_error) => {
+            delete this.sockets[socket.id]
+        });
+    }
 
-        socket.connect(destination.port, destination.address)
+    handle_udp(tunnel: Tunnel, context: Context) {
+
+
     }
 
     on_new_socket(socket: Socket, tunnel: Tunnel) {

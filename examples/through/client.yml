@@ -8,6 +8,14 @@ components:
   - name: server/listen
     type: tcp
     listen: 8099
+    pass: server/through
+
+  - name: server/through
+    type: through
+    pass: client/through
+
+  - name: client/through
+    type: through
     pass: client/connect
 
   - name: client/connect

@@ -7,14 +7,14 @@ servers:
 components:
   - name: client/tcp
     type: tcp
-    listen: 1080
-    pass: client/socks5
+    listen: 6566
+    pass: client/vless
 
-  - name: client/socks5
-    type: socks5
+  - name: client/vless
+    type: vless
     passes:
       tcp: server/free
     users: []
 
   - name: server/free
-    type: free
+    type: tcp

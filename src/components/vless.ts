@@ -34,7 +34,7 @@ export default class Vless extends Component {
 
         callback()
 
-        tunnel.next = this.head.bind(tunnel, context)
+        tunnel.next = this.head.bind(this, tunnel, context)
         tunnel.on("data", (buffer: Buffer) => {
             if (tunnel.pendings == null) {
                 tunnel.pendings = buffer
@@ -42,9 +42,7 @@ export default class Vless extends Component {
             else {
                 buffer.copy(tunnel.pendings, tunnel.pendings.length)
             }
-            if (tunnel.next) {
-                tunnel.next()
-            }
+            tunnel.next()
         })
     }
 
@@ -65,7 +63,7 @@ export default class Vless extends Component {
         const cmd = buffer[offset += optLength] //18+optLength
 
         const dest = {
-            address: "",
+            host: "",
             protocol: "tcp",
             port: 0
         }
@@ -78,13 +76,13 @@ export default class Vless extends Component {
         switch (address_type) {
             case 0x01:      //ipv4
                 {
-                    dest.address = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
+                    dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
                 }
                 break
             case 0x02:      //domain
                 {
                     const size = buffer[offset++]
-                    dest.address = buffer.subarray(offset, offset += size).toString()
+                    dest.host = buffer.subarray(offset, offset += size).toString()
                 }
                 break
             case 0x03:      //ipv6
@@ -94,7 +92,7 @@ export default class Vless extends Component {
                     for (let i = 0; i < 8; i++) {
                         address.push(buffer.readUint16BE(offset += 2).toString(16));
                     }
-                    dest.address = address.join(":")
+                    dest.host = address.join(":")
                 }
                 break
             default:

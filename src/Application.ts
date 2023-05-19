@@ -75,8 +75,10 @@ export class Application {
                     socket.emit(event, ...args)
                 })
 
+                socket.setMaxListeners(Infinity)
+
                 socket.on("ping", () => {
-                    socket.pong()
+                    socket.pong("")
                 })
 
                 socket.write = (event: string, ...args: any[]) => {
@@ -167,7 +169,7 @@ export class Application {
                     return
                 }
                 else {
-                    socket.ping()
+                    socket.ping("")
                 }
 
             }, 1000)
@@ -189,11 +191,13 @@ export class Application {
                 console.log(`connect node[${node.name}] error,retry after ${retry_timeout / 1000} seconds`);
             }
             else {
-                console.log('Disconnected from server', node.name);
+                console.log(`node[${node.name}] closed`);
             }
             retry++
             setTimeout(this.connect_node.bind(this, node, retry), retry_timeout)
         });
+
+        socket.setMaxListeners(Infinity)
     }
 
     prepare_components() {
@@ -221,8 +225,10 @@ export class Application {
 
             node.components[component.name] = component
 
+
             console.log(`component[${component.name}] created`)
 
+            component.setMaxListeners(Infinity)
             component.emit("ready")
             component.on("error", () => { })
         }
@@ -245,6 +251,8 @@ export class Application {
         const target = this.nodes[names[0]]
 
         const tunnel = new Tunnel()
+
+        tunnel.setMaxListeners(Infinity)
 
         if (callback) {
             tunnel.once("connect", callback)
@@ -269,8 +277,12 @@ export class Application {
 
             delete this.tunnels[id]
 
+            if (existed.closed || existed.destroyed) {
+                return
+            }
+
             if (reason) {
-                existed.destroy(new Error(reason))
+                existed.destroy(new Error(`tunnel to ${address} ${reason}`))
             }
             else {
                 existed.destroy()
@@ -298,11 +310,12 @@ export class Application {
             }
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
                 target.socket?.write("tunnel::close", tunnel.id, this.wrap_error(error))
+                delete this.tunnels[id]
                 callback(error)
             }
 
             //对端断开了，那么tunnel也要销毁
-            target.socket.once("close", destroy.bind(null, tunnel.id, "target socket close"))
+            target.socket.once("close", destroy.bind(null, tunnel.id, `destroy because of node[${target.name}] closed`))
 
             return tunnel
         }
@@ -317,6 +330,8 @@ export class Application {
         }
 
         const revert = new Tunnel()
+
+        revert.setMaxListeners(Infinity)
 
         tunnel._write = (chunk, encoding, callback) => {
             if (!revert.push(chunk, encoding)) {
@@ -426,6 +441,7 @@ export class Application {
             component.options = options
             component.create_site = this.create_site.bind(this)
             component.createConnection = this.connect_component.bind(this, component)
+            component.setMaxListeners(Infinity)
 
             that.components[component.name] = component
 
@@ -463,6 +479,8 @@ export class Application {
             }
 
             const tunnel = this.tunnels[id] = new Tunnel(id)
+
+            tunnel.setMaxListeners(Infinity)
 
             tunnel.destination = `${node.name}/?`
             tunnel.readyState = "open"
@@ -631,6 +649,7 @@ export class Application {
         if (class_ == null) {
             throw new Error(`unsupported component type: ${options.type} in ${options.name}`)
         }
+
         return new class_(options)
     }
 
