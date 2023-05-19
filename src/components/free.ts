@@ -54,57 +54,21 @@ export default class Free extends Component {
 
     handle_tcp(tunnel: Tunnel, context: Context) {
 
-        console.log("tcp connect", context.dest.host, context.dest.port)
+        // console.log("tcp connect", context.dest.host, context.dest.port)
 
         const socket = createConnection(context.dest)
 
-        socket.setKeepAlive(true)
-        socket.setNoDelay(true)
-
-        socket.pipe(tunnel).pipe(socket)
-
         this.sockets[socket.id] = socket
 
-        socket.on('close', (has_error) => {
-            delete this.sockets[socket.id]
-        });
-    }
-
-    handle_udp(tunnel: Tunnel, context: Context) {
-
-
-    }
-
-    on_new_socket(socket: Socket, tunnel: Tunnel) {
-
         socket.setKeepAlive(true)
-
-        socket.pipe(tunnel)
-        tunnel.pipe(socket)
-
-        tunnel.on("error", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        tunnel.on("close", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
-        socket.on("error", () => {
-            socket.destroy()
-            tunnel.destroy()
-        })
-
-        socket.on("end", () => {
-            tunnel.destroy()
-            socket.destroy()
-        })
-
+        socket.setNoDelay(true)
+        socket.pipe(tunnel).pipe(socket)
         socket.on('close', (has_error) => {
             delete this.sockets[socket.id]
+            tunnel.end()
         });
-
     }
+
+    handle_udp(tunnel: Tunnel, context: Context) { }
+
 }

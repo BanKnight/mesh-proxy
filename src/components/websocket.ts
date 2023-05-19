@@ -79,28 +79,19 @@ export default class Tcp extends Component {
             }
 
             const duplex = ws.createWebSocketStream(socket)
+            const tunnel = this.createConnection(this.options.pass, context)
 
-            const timer = setInterval(() => {
-                if (socket.readyState == socket.OPEN) {
-                    socket.ping()
-                }
-                else {
-                    clearInterval(timer)
-                }
-            }, this.options.timeout || 10000)
+            duplex.pipe(tunnel).pipe(duplex)
 
-            const tunnel = this.createConnection(this.options.pass, context, () => {
+            req.socket.setKeepAlive(true)
+            req.socket.setNoDelay(true)
+            req.socket.setTimeout(3000)
 
-                req.socket.setKeepAlive(true)
-                req.socket.setNoDelay(true)
-                req.socket.setTimeout(3000)
+            this.sockets[socket.id] = socket
 
-                duplex.pipe(tunnel).pipe(duplex)
-
-                duplex.on("error", (error) => {
-                    duplex.destroy(error)
-                    tunnel.destroy(error)
-                })
+            duplex.on("close", () => {
+                delete this.sockets[socket.id]
+                tunnel.end()
             })
 
             tunnel.once("error", (e) => {

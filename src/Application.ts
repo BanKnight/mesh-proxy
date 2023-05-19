@@ -57,6 +57,7 @@ export class Application {
             this.as_server()
         }
 
+        let last_count = 0
         setInterval(() => {
 
             let count = 0
@@ -64,7 +65,11 @@ export class Application {
                 count++
             }
 
-            console.log("tunnels count", count)
+            if (last_count != count) {
+                console.log("tunnels count", count)
+            }
+
+            last_count = count
         }, 3000)
     }
 
@@ -254,6 +259,7 @@ export class Application {
 
         const tunnel = new Tunnel()
 
+        tunnel.destination = address
         tunnel.setMaxListeners(Infinity)
 
         if (callback) {
@@ -295,6 +301,8 @@ export class Application {
 
         if (target.socket) {
 
+            // console.log(this.name, "tunnel::connect_component ,from:", from_component.name, id, address)
+
             this.tunnels[tunnel.id] = tunnel
 
             target.socket.write("tunnel::connect", tunnel.id, address, context)
@@ -311,7 +319,7 @@ export class Application {
                 callback()
             }
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-                target.socket?.write("tunnel::close", tunnel.id, this.wrap_error(error))
+                target.socket?.write("tunnel::close", id, this.wrap_error(error))
                 delete this.tunnels[id]
                 callback(error)
             }
@@ -326,7 +334,7 @@ export class Application {
 
         if (component == null) {
             setImmediate(() => {
-                tunnel.destroy(new Error(`connect error, such component: ${address}`))
+                tunnel.emit("error", new Error(`connect error, such component: ${address}`))
             })
             return tunnel
         }
@@ -396,17 +404,20 @@ export class Application {
         revert.connecting = false
         revert.readyState = "open"
 
-        component.once("close", destroy.bind(null, revert.id))
-        component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
-            if (error) {
-                tunnel.emit("error", error)
-                return
-            }
+        component.once("close", destroy.bind(null, revert.id, `tunnel[${revert.id}] destroy because parent[${component.name}] closed`))
 
-            tunnel.connecting = false
-            tunnel.readyState = "open"
+        setImmediate(() => {
+            component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
+                if (error) {
+                    tunnel.emit("error", error)
+                    return
+                }
 
-            tunnel.emit("connect", ...args)
+                tunnel.connecting = false
+                tunnel.readyState = "open"
+
+                tunnel.emit("connect", ...args)
+            })
         })
 
         return tunnel
@@ -471,8 +482,6 @@ export class Application {
 
         node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
 
-            // console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
-
             const names = destination.split("/")
             const that = this.nodes[names[0]]
             const component = that.components[names[1]]
@@ -484,6 +493,8 @@ export class Application {
             }
 
             const tunnel = this.tunnels[id] = new Tunnel(id)
+
+            // console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
 
             tunnel.setMaxListeners(Infinity)
 
@@ -497,9 +508,9 @@ export class Application {
 
             tunnel._read = () => { };
             tunnel._final = (callback: (error?: Error | null) => void) => {
+                node.socket?.write("tunnel::final", id)
                 tunnel.readyState = "readOnly"
                 callback()
-                node.socket?.write("tunnel::final", id)
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -509,9 +520,10 @@ export class Application {
                 callback(error)
             }
 
+            tunnel.on("error", () => { })
+
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
                 node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
-
                 if (error) {
                     delete this.tunnels[id]
                 }
@@ -522,7 +534,7 @@ export class Application {
                 if (!existed) {
                     return
                 }
-                existed.emit("end")
+                existed.destroy(new Error(reason))
             }
 
             //对端断开了，那么tunnel也要销毁
@@ -549,6 +561,8 @@ export class Application {
                 delete this.tunnels[id]
 
                 tunnel.emit("error", e)
+
+                // console.log(this.name, "tunnel::connection error", node.name, tunnel.id)
             }
             else {
                 tunnel.connecting = false
@@ -581,6 +595,7 @@ export class Application {
                 return
             }
 
+            //对端停止发送数据过来，那么这条通路就可以关了
             delete this.tunnels[id]
 
             // console.log(this.name, "tunnel::final from", node.name, tunnel.id)
@@ -615,8 +630,6 @@ export class Application {
 
             delete this.tunnels[id]
 
-            tunnel.emit("end")
-
             if (error) {
 
                 const e = new Error(error.message)
@@ -624,11 +637,9 @@ export class Application {
                 e.name = error.name;
                 e.stack = error.stack;
 
-                tunnel.destroy(e)
+                tunnel.emit("error", e)
             }
-            else {
-                tunnel.destroy()
-            }
+            tunnel.emit("close")
         })
     }
 
@@ -815,44 +826,6 @@ export class Application {
 
             location(req, socket, head)
         })
-
-        // server.on("upgrade", (req, socket, head) => {
-        //     let site = get_site(req)
-        //     if (site == null) {
-        //         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //         socket.destroy();
-        //         return;
-        //     }
-
-        //     if (site.auth.size > 0) {
-        //         const credentials = basic_auth(req)
-        //         if (credentials == null) {
-        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //             socket.destroy();
-        //             return;
-        //         }
-
-        //         const pass = site.auth.get(credentials.username)
-
-        //         if (pass != credentials.password) {
-        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //             socket.destroy();
-        //             return
-        //         }
-        //     }
-        //     const location = site.locations.get(req.url)    //location
-        //     if (location == null || !location.ws) {
-        //         socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
-        //         socket.destroy();
-        //         return;
-        //     }
-        //     req.socket.setTimeout(0);
-        //     req.socket.setNoDelay(true);
-        //     req.socket.setKeepAlive(true, 0);
-
-        //     location(req, socket, head)
-        // })
-
         server.listen(server.port, () => {
             console.log("http listening:", server.port)
         })

@@ -90,10 +90,12 @@ export class Component extends EventEmitter {
 }
 
 export type TunnelReadyState = 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed';
+
+let count = 0
 export class Tunnel extends Duplex {
     id: string;
+    order = ++count
     destination: string;
-
     /**
      * If `true`,`socket.connect(options[, connectListener])` was
      * called and has not yet finished. It will stay `true` until the socket becomes

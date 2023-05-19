@@ -62,6 +62,7 @@ export default class Tcp extends Component {
 
             socket.on('close', (has_error) => {
                 delete this.sockets[socket.id]
+                tunnel.end()
             });
 
             tunnel.once("error", (e) => {
@@ -94,18 +95,19 @@ export default class Tcp extends Component {
             })
 
             socket.id = `${this.name}/${++this.id}`
+
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
-
             socket.pipe(tunnel).pipe(socket)
 
             this.sockets[socket.id] = socket
 
             socket.on('close', (has_error) => {
                 delete this.sockets[socket.id]
+                tunnel.end()
             });
 
-            socket.once("error", (error: Error) => {
+            socket.on("error", (error: Error) => {
                 if (socket.pending) {
                     callback(error)
                 }
