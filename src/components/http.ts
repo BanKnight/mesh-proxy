@@ -2,15 +2,15 @@ import { WebSocket, WebSocketServer, createWebSocketStream } from "ws"
 import https from "https"
 import http from "http"
 import url from "url"
-import { Component, ComponentOption, Tunnel } from "../types.js";
-import { Duplex } from 'stream';
-import { handle_upgrade, url_join, has_port } from "../utils.js";
+import { Component, ComponentOption, SiteInfo, Tunnel } from "../types.js";
+import { url_join, has_port } from "../utils.js";
 
 const isSSL = /^https|wss/;
 const upgradeHeader = /(^|,)\s*upgrade\s*($|,)/i
 export default class Http extends Component {
 
     wsserver = new WebSocketServer({ noServer: true })
+    site?: SiteInfo;
 
     constructor(options: ComponentOption) {
         super(options)
@@ -37,9 +37,9 @@ export default class Http extends Component {
 
             const location = this.options.locations[path]
 
-            if (location.ws) {
+            if (location.upgrade) {
                 const cb = this.make_ws_pass(path, location)
-                site.locations.set(path, cb)
+                site.upgrades.set(path, cb)
             }
             else {
                 const cb = this.make_req_pass(path, location)
@@ -48,7 +48,25 @@ export default class Http extends Component {
         }
     }
 
-    close() { }
+    close() {
+
+        if (this.site == null) {
+            return
+        }
+
+        for (let path in this.options.locations) {
+
+            const location = this.options.locations[path]
+
+            if (location.upgrade) {
+
+                this.site.upgrades.delete(path)
+            }
+            else {
+                this.site.locations.delete(path)
+            }
+        }
+    }
 
     make_req_pass(path: string, location: any) {
         return (req: http.IncomingMessage, res: http.ServerResponse) => {

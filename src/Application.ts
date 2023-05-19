@@ -10,6 +10,7 @@ import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
 import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener } from "./types.js";
 import { basic_auth } from "./utils.js"
+import { Duplex } from "stream"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -67,24 +68,19 @@ export class Application {
 
         const wsserver = new WebSocketServer({ noServer: true })
 
-        const callback = (req: http.IncomingMessage, res: http.ServerResponse) => {
-            wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WSocket, req) => {
+        site.upgrades.set(this.options.path, (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
 
+            wsserver.handleUpgrade(req, socket, head, (socket: WSocket, req) => {
+
+                socket.setMaxListeners(Infinity)
                 socket.on("message", (data: Buffer, isBinanry) => {
                     const { event, args } = deserialize(data)
                     socket.emit(event, ...args)
                 })
 
-                socket.setMaxListeners(Infinity)
-
-                socket.on("ping", () => {
-                    socket.pong("")
-                })
-
                 socket.write = (event: string, ...args: any[]) => {
                     socket.send(serialize({ event, args }))
                 }
-
                 socket.once("auth", (data: { user: string, token: string }) => {
 
                     const config_user = this.options.auth[data.user]
@@ -113,11 +109,7 @@ export class Application {
                     console.error(error)
                 })
             })
-        }
-
-        callback.ws = true
-
-        site.locations.set(this.options.path, callback)
+        })
     }
     connect_servers() {
         if (this.options.servers == null) {
@@ -169,7 +161,7 @@ export class Application {
                     return
                 }
                 else {
-                    socket.ping("")
+                    socket.ping()
                 }
 
             }, 1000)
@@ -260,7 +252,7 @@ export class Application {
 
         if (target == null) {
             setImmediate(() => {
-                tunnel.destroy(new Error(`no such node: ${names[0]}`))
+                tunnel.emit("error", new Error(`tunnel to ${address} failed,no such node: ${names[0]}`))
             })
             return tunnel
         }
@@ -382,14 +374,22 @@ export class Application {
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             tunnel.readyState = "closed"
             callback(error)
+            if (error) {
+                revert.emit("error", error)
+            }
             revert.emit("close")
         }
 
         revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             revert.readyState = "closed"
             callback(error)
+            if (error) {
+                tunnel.emit("error", error)
+            }
             tunnel.emit("close")
         }
+
+        revert.on("error", console.error)
 
         revert.connecting = false
         revert.readyState = "open"
@@ -466,7 +466,7 @@ export class Application {
 
         node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
 
-            console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
+            // console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
 
             const names = destination.split("/")
             const that = this.nodes[names[0]]
@@ -581,7 +581,7 @@ export class Application {
                 return
             }
 
-            console.log(this.name, "tunnel::final from", node.name, tunnel.id)
+            // console.log(this.name, "tunnel::final from", node.name, tunnel.id)
 
             tunnel.readyState = "writeOnly"
             tunnel.emit("end")
@@ -609,7 +609,7 @@ export class Application {
                 return
             }
 
-            console.log(this.name, "tunnel::destroy,from:", node.name, id)
+            // console.log(this.name, "tunnel::destroy,from:", node.name, id)
 
             delete this.tunnels[id]
 
@@ -672,6 +672,7 @@ export class Application {
         site = {
             host: options.host,
             locations: new Map(),
+            upgrades: new Map(),
             auth: new Map(),
         }
 
@@ -756,6 +757,45 @@ export class Application {
             }
             location(req, res)
         })
+
+        server.on("upgrade", (req, socket, head) => {
+
+            let site = get_site(req)
+            if (site == null) {
+                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+
+            if (site.auth.size > 0) {
+                const credentials = basic_auth(req)
+                if (credentials == null) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
+
+                const pass = site.auth.get(credentials.username)
+
+                if (pass != credentials.password) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return
+                }
+            }
+            const location = site.upgrades.get(req.url)    //location
+            if (location == null) {
+                socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+            req.socket.setTimeout(0);
+            req.socket.setNoDelay(true);
+            req.socket.setKeepAlive(true, 0);
+
+            location(req, socket, head)
+        })
+
         // server.on("upgrade", (req, socket, head) => {
         //     let site = get_site(req)
         //     if (site == null) {
@@ -814,7 +854,6 @@ export class Application {
 
         return server
     }
-
 
 }
 

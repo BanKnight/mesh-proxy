@@ -54,6 +54,8 @@ export default class Free extends Component {
 
     handle_tcp(tunnel: Tunnel, context: Context) {
 
+        console.log("tcp connect", context.dest.host, context.dest.port)
+
         const socket = createConnection(context.dest)
 
         socket.setKeepAlive(true)
