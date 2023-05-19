@@ -62,7 +62,7 @@ export default class Vless extends Component {
         const optLength = buffer[offset++]      //17
         const cmd = buffer[offset += optLength] //18+optLength
 
-        const dest = {
+        const dest = context.dest = {
             host: "",
             protocol: "tcp",
             port: 0

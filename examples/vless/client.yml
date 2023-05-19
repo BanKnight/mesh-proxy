@@ -17,4 +17,4 @@ components:
     users: []
 
   - name: server/free
-    type: tcp
+    type: free
