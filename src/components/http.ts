@@ -4,6 +4,7 @@ import http from "http"
 import url from "url"
 import { Component, ComponentOption, SiteInfo, Tunnel } from "../types.js";
 import { url_join, has_port } from "../utils.js";
+import { Duplex } from "stream";
 
 const isSSL = /^https|wss/;
 const upgradeHeader = /(^|,)\s*upgrade\s*($|,)/i
@@ -11,6 +12,7 @@ export default class Http extends Component {
 
     wsserver = new WebSocketServer({ noServer: true })
     site?: SiteInfo;
+    sockets: Record<string, Duplex> = {}
 
     constructor(options: ComponentOption) {
         super(options)
@@ -96,57 +98,53 @@ export default class Http extends Component {
                     }
                     res.writeHead(resp.statusCode, resp.statusMessage)
                 }
-
-                req.pipe(tunnel).pipe(res)
             })
 
-            tunnel.once("error", (e) => {
+            req.pipe(tunnel).pipe(res)
 
+            tunnel.once("error", (e) => {
                 if (!res.headersSent) {
                     res.writeHead(502, e.message)
                     res.end()
                 }
-                tunnel.destroy(e)
             })
         }
     }
 
     make_ws_pass(path: string, location: any) {
 
-        return (req: http.IncomingMessage, res: http.ServerResponse) => {
+        return (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
 
             const context = {
                 source: {
-                    protocol: "http",
-                    ssl: this.options.ssl,
-                    upgrade: "websocket",
                     method: req.method,
                     headers: req.headers,
                     rawHeaders: req.rawHeaders,
                     url: req.url,
+                    httpVersion: req.httpVersion,
+                    httpVersionMajor: req.httpVersionMajor,
+                    httpVersionMinor: req.httpVersionMinor,
                     socket: {
                         remoteAddress: req.socket.remoteAddress,
                         remotePort: req.socket.remotePort,
-                    }
+                    },
                 }
             }
 
-            const tunnel = this.createConnection(location.pass, context, () => {
+            if (head.length > 0) {
+                socket.unshift(head)
+            }
 
-                this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WebSocket, req) => {
+            const tunnel = this.createConnection(location.pass, context)
 
-                    const duplex = createWebSocketStream(socket)
+            req.socket.setKeepAlive(true)
+            req.socket.setNoDelay(true)
+            req.socket.setTimeout(0)
 
-                    duplex.pipe(tunnel).pipe(duplex)
-                })
+            socket.pipe(tunnel).pipe(socket)
 
-            })
-
-            tunnel.once("error", (e) => {
-                res.writeHead(502, e.message)
-                res.end()
-
-                tunnel.destroy(e)
+            socket.on("close", () => {
+                tunnel.end()
             })
         }
     }
@@ -159,10 +157,6 @@ export default class Http extends Component {
         else {
             return this.pass_request(tunnel, context, callback)
         }
-    }
-
-    pass_websocket(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
-
     }
 
     pass_request(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
@@ -189,7 +183,7 @@ export default class Http extends Component {
         const outoptions = this.req_options(source)
         const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
 
-            callback(null, {
+            callback(null, {        //这里可以修改头部
                 httpVersion: proxyRes.httpVersion,
                 statusCode: proxyRes.statusCode,
                 statusMessage: proxyRes.statusMessage,
@@ -208,15 +202,66 @@ export default class Http extends Component {
             });
         }
         // Ensure we abort proxy if request is aborted
-        const destroy_handler = proxyReq.destroy.bind(proxyReq)
+        const done = proxyReq.end.bind(proxyReq)
 
-        tunnel.on('close', destroy_handler);
-        tunnel.on('error', destroy_handler);
-
+        tunnel.on('close', done);
+        tunnel.on('error', done);
         tunnel.pipe(proxyReq);
 
-        proxyReq.on('error', callback);
-        proxyReq.end()
+        proxyReq.once('error', () => {
+            if (!proxyReq.headersSent) {
+                tunnel.end()
+            }
+        });
+        // proxyReq.end()
+    }
+
+    pass_websocket(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
+
+        callback()
+
+        const source = context.source
+        const outoptions = this.req_options(source)
+        const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions);
+
+        let upgrade = false
+        let end = tunnel.end.bind(tunnel)
+
+        proxyReq.on("error", end)
+        proxyReq.on('upgrade', function (proxyRes, proxySocket, proxyHead) {
+
+            upgrade = true
+            proxySocket.on('error', end);
+
+            tunnel.on('error', function () {
+                proxySocket.end();
+            });
+
+            proxySocket.setKeepAlive(true)
+            proxySocket.setNoDelay(true)
+            proxySocket.setTimeout(0)
+
+            if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
+
+
+            // 组装 HTTP 请求头和正文
+            const requestData = `HTTP/1.1 101 Switching Protocols\r\n${Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
+            // 将 HTTP 请求头和正文发送给远端服务器
+            tunnel.write(requestData);
+
+            proxySocket.pipe(tunnel).pipe(proxySocket)
+        });
+
+        proxyReq.on('response', function (res) {
+            if (upgrade) {
+                return
+            }
+            const requestData = `HTTP/${res.httpVersion} ${res.statusCode} ${res.statusMessage}\r\n${Object.entries(res.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
+            tunnel.write(requestData);
+            res.pipe(tunnel);
+        });
+
+        proxyReq.end()          //只有这样才会发起请求
     }
 
     req_options(req: any, forward?: string) {

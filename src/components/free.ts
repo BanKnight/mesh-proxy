@@ -20,10 +20,7 @@ export default class Free extends Component {
         this.on("connection", this.connection.bind(this))
     }
 
-    ready() {
-
-
-    }
+    ready() { }
 
     close(error?: Error) {
 
@@ -54,19 +51,26 @@ export default class Free extends Component {
 
     handle_tcp(tunnel: Tunnel, context: Context) {
 
-        // console.log("tcp connect", context.dest.host, context.dest.port)
-
+        if (this.options.debug) {
+            console.log(this.name, "tcp connect", context.dest.host, context.dest.port)
+        }
         const socket = createConnection(context.dest)
 
-        this.sockets[socket.id] = socket
-
+        socket.id = `${this.name}/${++this.id}`
         socket.setKeepAlive(true)
         socket.setNoDelay(true)
         socket.pipe(tunnel).pipe(socket)
+
+        this.sockets[socket.id] = socket
+
         socket.on('close', (has_error) => {
             delete this.sockets[socket.id]
             tunnel.end()
         });
+
+        socket.on("error", () => {
+            socket.destroy()
+        })
     }
 
     handle_udp(tunnel: Tunnel, context: Context) { }

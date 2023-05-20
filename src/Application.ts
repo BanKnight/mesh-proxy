@@ -60,17 +60,13 @@ export class Application {
         let last_count = 0
         setInterval(() => {
 
-            let count = 0
-            for (let name in this.tunnels) {
-                count++
-            }
-
+            let count = Object.keys(this.tunnels).length
             if (last_count != count) {
                 console.log("tunnels count", count)
             }
 
             last_count = count
-        }, 3000)
+        }, 5000)
     }
 
     as_server() {
@@ -313,10 +309,14 @@ export class Application {
                 callback()
             }
 
-            //本方不再读数据
+            //本方不再发送数据数据
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 target.socket?.write("tunnel::final", tunnel.id)
                 callback()
+
+                if (tunnel.readableEnded) {
+                    tunnel.destroy()
+                }
             }
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
                 target.socket?.write("tunnel::close", id, this.wrap_error(error))
@@ -372,20 +372,24 @@ export class Application {
 
             callback()
 
-            revert.readyState = "writeOnly"
             tunnel.readyState = "readOnly"
-
             revert.emit("end")
+            if (tunnel.readableEnded) {
+                tunnel.destroy()
+            }
         }
 
         revert._final = (callback: (error?: Error | null) => void) => {
 
             callback()
 
-            tunnel.readyState = "writeOnly"
             revert.readyState = "readOnly"
 
             tunnel.emit("end")
+
+            if (revert.readableEnded) {
+                revert.destroy()
+            }
         }
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             tunnel.readyState = "closed"
@@ -511,6 +515,9 @@ export class Application {
                 node.socket?.write("tunnel::final", id)
                 tunnel.readyState = "readOnly"
                 callback()
+                if (tunnel.readableEnded) {
+                    tunnel.destroy()
+                }
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -520,7 +527,9 @@ export class Application {
                 callback(error)
             }
 
-            tunnel.on("error", () => { })
+            tunnel.on("error", () => {
+                tunnel.end()
+            })
 
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
                 node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
@@ -780,7 +789,10 @@ export class Application {
             req.socket.setNoDelay(true)
             req.socket.setTimeout(0)
 
-            const location = site.locations.get(req.url)    //location
+            const index = req.url.indexOf('?');
+            const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+
+            const location = site.locations.get(pathname)    //location
             if (location == null) {
                 res.writeHead(404);
                 res.end("Not found");
@@ -814,7 +826,11 @@ export class Application {
                     return
                 }
             }
-            const location = site.upgrades.get(req.url)    //location
+
+            const index = req.url.indexOf('?');
+            const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+
+            const location = site.upgrades.get(pathname)    //location
             if (location == null) {
                 socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
                 socket.destroy();

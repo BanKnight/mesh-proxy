@@ -1,4 +1,4 @@
-import { stringify } from "uuid"
+import { stringify, v5, validate } from "uuid"
 import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectListener } from "../types.js";
 
 const resp = Buffer.from([0, 0])
@@ -19,7 +19,8 @@ export default class Vless extends Component {
             this.emit("error", new Error("no pass defined in the options"))
         }
         for (const user of this.options.users) {
-            this.users.set(user.id, user)
+            const uuid = validate(user.id) ? user.id : v5(user.id, Buffer.alloc(16))
+            this.users.set(uuid, user)
         }
     }
     close() { }
@@ -154,20 +155,19 @@ export default class Vless extends Component {
             return
         }
 
-        const next = this.createConnection(pass, context, () => {
+        const next = this.createConnection(pass, context)
 
-            tunnel.write(resp)
-
-            if (head.length > 0) {
-                next.write(head)
-            }
-
-            tunnel.pipe(next).pipe(tunnel)
-        })
+        tunnel.write(resp)      //回应
+        tunnel.unshift(head)
+        tunnel.pipe(next).pipe(tunnel)
 
         next.once("error", (e) => {
             next.destroy()
-            tunnel.destroy(e)
+            next.end()
+        })
+
+        tunnel.on("close", () => {
+            next.end()
         })
     }
 
