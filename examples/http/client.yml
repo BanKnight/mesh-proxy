@@ -7,15 +7,19 @@ servers:
 components:
   - name: server/http
     type: http
-    host: hao.mr-tutu.com
+    host: www.example.com
     port: 80
     locations:
       /:
         pass: client/http
-      /donghuicheng:
+      /ws:
         pass: client/websocket
-        upgrade: websocket
+        upgrade: websocket  
 
   - name: client/http
     type: http
-    url: http://192.168.31.1
+    url: http://127.0.0.1:8899
+
+  - name: client/websocket
+    type: http
+    url: ws://127.0.0.1:8899/ws

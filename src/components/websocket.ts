@@ -4,7 +4,6 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import ws from 'ws';
 import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
-import { Duplex } from 'stream';
 
 type IdWsSocket = ws.WebSocket & { id: string }
 
