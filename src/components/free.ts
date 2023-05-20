@@ -9,9 +9,6 @@ interface Context {
     }
 }
 export default class Free extends Component {
-    id: number = 0
-    sockets: Record<string, Socket> = {}        //[tunnel][remote_id] = socket 
-
     constructor(options: ComponentOption) {
         super(options)
 
@@ -22,13 +19,7 @@ export default class Free extends Component {
 
     ready() { }
 
-    close(error?: Error) {
-
-        for (let id in this.sockets) {
-            const socket = this.sockets[id]
-            socket.resetAndDestroy()
-        }
-    }
+    close(error?: Error) { }
 
     connection(tunnel: Tunnel, context: Context, callback: Function) {
 
@@ -54,18 +45,16 @@ export default class Free extends Component {
         if (this.options.debug) {
             console.log(this.name, "tcp connect", context.dest.host, context.dest.port)
         }
+
         const socket = createConnection(context.dest)
 
-        socket.id = `${this.name}/${++this.id}`
         socket.setKeepAlive(true)
         socket.setNoDelay(true)
         socket.pipe(tunnel).pipe(socket)
 
-        this.sockets[socket.id] = socket
-
         socket.on('close', (has_error) => {
-            delete this.sockets[socket.id]
             tunnel.end()
+            socket.destroy()
         });
 
         socket.on("error", () => {

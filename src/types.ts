@@ -32,7 +32,6 @@ export interface ComponentOption extends Record<string, any> {
     type: string;
 }
 
-
 export interface Config extends Record<string, any> {
     name: string;
     token?: string;

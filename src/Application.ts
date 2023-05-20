@@ -166,7 +166,6 @@ export class Application {
             this.on_node_connected(node)
 
             const timer = setInterval(() => {
-
                 if (socket.readyState == socket.CLOSED) {
                     clearInterval(timer)
                     return
@@ -174,7 +173,6 @@ export class Application {
                 else {
                     socket.ping()
                 }
-
             }, 1000)
         });
 
@@ -187,7 +185,6 @@ export class Application {
 
         socket.on('close', (code: number, reason: Buffer) => {
             node.socket = null
-
             const retry_timeout = Math.min(3000 * Math.pow(2, retry), 20000)
 
             if (connecting) {

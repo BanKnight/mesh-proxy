@@ -1,7 +1,7 @@
 import { WebSocket, WebSocketServer, createWebSocketStream } from "ws"
 import https from "https"
 import http from "http"
-import url from "url"
+import url, { UrlWithStringQuery } from "url"
 import { Component, ComponentOption, SiteInfo, Tunnel } from "../types.js";
 import { url_join, has_port } from "../utils.js";
 import { Duplex } from "stream";
@@ -12,7 +12,6 @@ export default class Http extends Component {
 
     wsserver = new WebSocketServer({ noServer: true })
     site?: SiteInfo;
-    sockets: Record<string, Duplex> = {}
 
     constructor(options: ComponentOption) {
         super(options)
@@ -23,8 +22,8 @@ export default class Http extends Component {
 
     ready() {
 
-        if (this.options.port == null) {
-            this.options.target = url.parse(this.options.target)
+        if (this.options.url) {
+            this.options.address = url.parse(this.options.url)
             this.on("connection", this.connection.bind(this))
             return
         }
@@ -37,30 +36,25 @@ export default class Http extends Component {
         })
 
         for (let path in this.options.locations) {
-
             const location = this.options.locations[path]
-
             if (location.upgrade) {
-                const cb = this.make_ws_pass(path, location)
+                const cb = this.handle_upgrade.bind(this, location)
                 site.upgrades.set(path, cb)
             }
             else {
-                const cb = this.make_req_pass(path, location)
+                const cb = this.handle_request.bind(this, location)
                 site.locations.set(path, cb)
             }
         }
     }
 
     close() {
-
         if (this.site == null) {
             return
         }
 
         for (let path in this.options.locations) {
-
             const location = this.options.locations[path]
-
             if (location.upgrade) {
                 this.site.upgrades.delete(path)
             }
@@ -69,52 +63,47 @@ export default class Http extends Component {
             }
         }
     }
+    handle_request(location: any, req: http.IncomingMessage, res: http.ServerResponse) {
 
-    make_req_pass(path: string, location: any) {
-        return (req: http.IncomingMessage, res: http.ServerResponse) => {
-
-            const context = {
-                source: {
-                    method: req.method,
-                    headers: req.headers,
-                    rawHeaders: req.rawHeaders,
-                    url: req.url,
-                    httpVersion: req.httpVersion,
-                    httpVersionMajor: req.httpVersionMajor,
-                    httpVersionMinor: req.httpVersionMinor,
-                    socket: {
-                        remoteAddress: req.socket.remoteAddress,
-                        remotePort: req.socket.remotePort,
-                    }
-
-                }
+        // const outoptions = this.req_options(req)
+        const context = {
+            source: {
+                method: req.method,
+                headers: req.headers,
+                rawHeaders: req.rawHeaders,
+                url: req.url,
+                httpVersion: req.httpVersion,
+                httpVersionMajor: req.httpVersionMajor,
+                httpVersionMinor: req.httpVersionMinor,
+                socket: {
+                    remoteAddress: req.socket.remoteAddress,
+                    remotePort: req.socket.remotePort,
+                },
+                // ...outoptions
             }
-            const tunnel = this.createConnection(location.pass, context, (resp: any) => {
-
-                if (!res.headersSent) {
-                    for (let name in resp.headers) {
-                        let val = resp.headers[name]
-                        res.setHeader(name, val)
-                    }
-                    res.writeHead(resp.statusCode, resp.statusMessage)
-                }
-            })
-
-            req.pipe(tunnel).pipe(res)
-
-            tunnel.once("error", (e) => {
-                if (!res.headersSent) {
-                    res.writeHead(502, e.message)
-                    res.end()
-                }
-            })
         }
+        const tunnel = this.createConnection(location.pass, context, (resp: any) => {
+            if (!res.headersSent) {
+                for (let name in resp.headers) {
+                    let val = resp.headers[name]
+                    res.setHeader(name, val)
+                }
+                res.writeHead(resp.statusCode, resp.statusMessage)
+            }
+        })
+
+        req.pipe(tunnel).pipe(res)
+
+        tunnel.once("error", (e) => {
+            if (!res.headersSent) {
+                res.writeHead(502, e.message)
+                res.end()
+            }
+        })
     }
 
-    make_ws_pass(path: string, location: any) {
-
-        return (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
-
+    handle_upgrade(location: any, req: http.IncomingMessage, socket: Duplex, head: Buffer) {
+        this.wsserver.handleUpgrade(req, socket, head, (wsocket: WebSocket) => {
             const context = {
                 source: {
                     method: req.method,
@@ -127,62 +116,46 @@ export default class Http extends Component {
                     socket: {
                         remoteAddress: req.socket.remoteAddress,
                         remotePort: req.socket.remotePort,
+                        localAddress: req.socket.localAddress,
+                        localPort: req.socket.localPort,
+                        localFamily: req.socket.localFamily,
                     },
                 }
             }
-
-            if (head.length > 0) {
-                socket.unshift(head)
-            }
-
+            const stream = createWebSocketStream(wsocket, location)
             const tunnel = this.createConnection(location.pass, context)
 
             req.socket.setKeepAlive(true)
             req.socket.setNoDelay(true)
             req.socket.setTimeout(0)
 
-            socket.pipe(tunnel).pipe(socket)
-
-            socket.on("close", () => {
+            stream.pipe(tunnel).pipe(stream)
+            stream.on("close", () => {
                 tunnel.end()
             })
-        }
+            tunnel.on("error", () => {
+                tunnel.end()
+                stream.destroy()
+            })
+        })
     }
-
     connection(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
 
-        if (context.source.upgrade == "websocket") {
-            return this.pass_websocket(tunnel, context, callback)
+        if (this.options.address == null) {
+            callback(new Error("no address"))
+            return
         }
-        else {
+        const address = this.options.address as UrlWithStringQuery
+        if (address.protocol == "http:" || address.protocol == "https:") {
             return this.pass_request(tunnel, context, callback)
         }
+        return this.pass_websocket(tunnel, context, callback)
     }
-
     pass_request(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
 
-        const source = context.source
-
-        if (this.options.forward) {
-            // If forward enable, so just pipe the request
-            const forwardReq = (this.options.forward.protocol === 'https:' ? https : http).request(
-                this.req_options(source, "forward")
-            );
-
-            // error handler (e.g. ECONNRESET, ECONNREFUSED)
-            // Handle errors on incoming request as well as it makes sense to
-            const forwardError = forwardReq.destroy.bind(forwardReq)
-
-            tunnel.on('error', forwardError);
-            forwardReq.on('error', forwardError);
-
-            (this.options.buffer || source).pipe(forwardReq);
-            if (!this.options.target) { return tunnel.end(); }
-        }
-
-        const outoptions = this.req_options(source)
-        const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
-
+        const outoptions = this.req_options(context.source)
+        const target = this.options.address
+        const proxyReq = (target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
             callback(null, {        //这里可以修改头部
                 httpVersion: proxyRes.httpVersion,
                 statusCode: proxyRes.statusCode,
@@ -190,7 +163,6 @@ export default class Http extends Component {
                 rawHeaders: proxyRes.rawHeaders,
                 headers: proxyRes.headers,
             })
-
             proxyRes.pipe(tunnel);
         });
 
@@ -220,56 +192,29 @@ export default class Http extends Component {
 
         callback()
 
-        const source = context.source
-        const outoptions = this.req_options(source)
-        const proxyReq = (this.options.target.protocol === 'https:' ? https : http).request(outoptions);
+        const wsocket = new WebSocket(this.options.url, this.options as unknown)
+        const stream = createWebSocketStream(wsocket)
 
-        let upgrade = false
-        let end = tunnel.end.bind(tunnel)
-
-        proxyReq.on("error", end)
-        proxyReq.on('upgrade', function (proxyRes, proxySocket, proxyHead) {
-
-            upgrade = true
-            proxySocket.on('error', end);
-
-            tunnel.on('error', function () {
-                proxySocket.end();
-            });
-
-            proxySocket.setKeepAlive(true)
-            proxySocket.setNoDelay(true)
-            proxySocket.setTimeout(0)
-
-            if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
-
-
-            // 组装 HTTP 请求头和正文
-            const requestData = `HTTP/1.1 101 Switching Protocols\r\n${Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
-            // 将 HTTP 请求头和正文发送给远端服务器
-            tunnel.write(requestData);
-
-            proxySocket.pipe(tunnel).pipe(proxySocket)
-        });
-
-        proxyReq.on('response', function (res) {
-            if (upgrade) {
-                return
-            }
-            const requestData = `HTTP/${res.httpVersion} ${res.statusCode} ${res.statusMessage}\r\n${Object.entries(res.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`;
-            tunnel.write(requestData);
-            res.pipe(tunnel);
-        });
-
-        proxyReq.end()          //只有这样才会发起请求
+        stream.on("error", () => {
+            tunnel.end()
+            stream.destroy()
+        })
+        stream.on("close", () => {
+            tunnel.end()
+        })
+        tunnel.on("error", () => {
+            stream.destroy()
+            tunnel.end()
+        })
+        tunnel.pipe(stream).pipe(tunnel)
     }
 
     req_options(req: any, forward?: string) {
 
         const outoptions = { ...this.options.ssl }
-        const target = this.options[forward || 'target'];
+        const target = this.options[forward || 'address'];
 
-        outoptions.port = this.options.target.port
+        outoptions.port = target.port
 
         for (const name of ['host', 'hostname', 'socketPath', 'pfx', 'key',
             'passphrase', 'cert', 'ca', 'ciphers', 'secureProtocol']) {

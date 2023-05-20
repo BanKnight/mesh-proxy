@@ -28,9 +28,7 @@ export default class Hole extends Component {
             callback()
         }
 
-        tunnel.on("data", (data) => {
-
-        })
+        tunnel.on("data", (data) => { })
         tunnel.on("error", () => {
             tunnel.end()
         })

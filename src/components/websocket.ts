@@ -125,29 +125,22 @@ export default class Tcp extends Component {
             return
         }
 
-        const socket = new ws.WebSocket(this.options.url) as IdWsSocket
+        callback()
 
-        socket.id = `${this.name}/${++this.id}`
+        const socket = new ws.WebSocket(this.options.url, this.options as unknown) as IdWsSocket
+        const stream = ws.createWebSocketStream(socket)
 
-        this.sockets[socket.id] = socket
-
-        socket.on("open", () => {
-            callback()
-
-            const duplex = ws.createWebSocketStream(socket)
-
-            duplex.pipe(tunnel).pipe(duplex)
-
-            duplex.on("error", (error) => {
-                duplex.destroy(error)
-                tunnel.destroy(error)
-            })
+        stream.on("error", () => {
+            tunnel.end()
+            stream.destroy()
         })
-
-        socket.once("error", (error: Error) => {
-            if (socket.readyState == WebSocket.CONNECTING) {
-                callback(error)
-            }
+        stream.on("close", () => {
+            tunnel.end()
         })
+        tunnel.on("error", () => {
+            stream.destroy()
+            tunnel.end()
+        })
+        tunnel.pipe(stream).pipe(tunnel)
     }
 }

@@ -4,7 +4,6 @@ import { Component, ComponentOption, Tunnel } from "../types.js";
 export default class Tcp extends Component {
     id: number = 0
     server?: Server
-    sockets: Record<string, Socket> = {}        //[tunnel][remote_id] = socket 
 
     constructor(options: ComponentOption) {
         super(options)
@@ -26,11 +25,6 @@ export default class Tcp extends Component {
     close(error?: Error) {
         this.server?.removeAllListeners()
         this.server?.close()
-
-        for (let id in this.sockets) {
-            const socket = this.sockets[id]
-            socket.resetAndDestroy()
-        }
     }
 
     listen() {
@@ -57,14 +51,10 @@ export default class Tcp extends Component {
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
-
-            this.sockets[socket.id] = socket
-
             socket.on('close', (has_error) => {
-                delete this.sockets[socket.id]
-                tunnel.end()
+                tunnel.destroy()
+                socket.destroy()
             });
-
             socket.on("error", () => {
                 socket.destroy()
                 tunnel.destroy()
@@ -99,17 +89,12 @@ export default class Tcp extends Component {
                 callback()
             })
 
-            socket.id = `${this.name}/${++this.id}`
-
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
-
-            this.sockets[socket.id] = socket
-
             socket.on('close', (has_error) => {
-                delete this.sockets[socket.id]
                 tunnel.end()
+                socket.destroy()
             });
 
             socket.on("error", (error: Error) => {

@@ -27,11 +27,17 @@ export default class Through extends Component {
             tunnel.pipe(next).pipe(tunnel)
         })
 
-        next.once("error", (e) => {
+        next.on("error", (e) => {
             if (next.readyState == "opening") {
                 callback(e)
             }
             tunnel.destroy()
+            next.destroy()
+        })
+
+        tunnel.on("error", () => {
+            tunnel.destroy()
+            next.destroy()
         })
     }
 

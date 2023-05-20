@@ -160,15 +160,20 @@ export default class Vless extends Component {
         tunnel.write(resp)      //回应
         tunnel.unshift(head)
         tunnel.pipe(next).pipe(tunnel)
-
-        next.once("error", (e) => {
-            next.destroy()
-            next.end()
-        })
-
         tunnel.on("close", () => {
             next.end()
+            tunnel.end()
         })
+        next.on("end", () => {
+            next.end()
+            tunnel.end()
+        })
+        next.on("error", (e) => {
+            next.end()
+            tunnel.end()
+        })
+
+
     }
 
     udp(tunnel: Tunnel, context: any, head: Buffer) {
