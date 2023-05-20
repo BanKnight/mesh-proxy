@@ -137,6 +137,11 @@ export default class Http extends Component {
                 tunnel.end()
                 stream.destroy()
             })
+
+            stream.on("error", () => {
+                tunnel.end()
+                stream.destroy()
+            })
         })
     }
     connection(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {

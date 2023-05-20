@@ -1,0 +1,25 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+    
+components:
+  - name: server/http
+    type: http
+    host: www.example.com
+    port: 80
+    locations:
+      /ws:
+        upgrade: websocket  
+        pass: client/vless
+
+  - name: client/vless
+    type: vless
+    passes:
+      tcp: server/free
+    users: 
+      - id: 13170fcc-1966-507d-bce9-532cc588fcf3 #thisisuuid
+
+  - name: server/free
+    type: free

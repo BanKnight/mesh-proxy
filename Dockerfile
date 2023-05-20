@@ -19,6 +19,6 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
 
 WORKDIR /app
 
-COPY --from=builder /app ./
+COPY --from=builder /app/dist ./
 
 CMD ["node","."]
