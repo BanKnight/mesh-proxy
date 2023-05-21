@@ -74,7 +74,7 @@ export class Component extends EventEmitter {
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
-    createConnection: (address: string, context: { source: any, dest?: any }, callback?: ConnectListener) => Tunnel;
+    createConnection: (address: string, context: { source?: any, dest?: any }, callback?: ConnectListener) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()
@@ -129,7 +129,7 @@ export class Tunnel extends Duplex {
     }
 }
 
-export type CachedTunnel = Tunnel & { pendings?: Buffer, next?: Function }
+export type CachedTunnel = Tunnel & { pendings?: Buffer[], next?: Function }
 
 // export type Location = (req: http.IncomingMessage, res: http.ServerResponse) => void
 export interface SiteInfo {

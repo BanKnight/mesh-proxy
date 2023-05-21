@@ -27,23 +27,44 @@ export default class Socks5 extends Component {
 
         callback()
 
+        tunnel.pendings = []
         tunnel.next = this.handshake.bind(this, tunnel, context)
         tunnel.on("data", (buffer: Buffer) => {
-            if (tunnel.pendings == null) {
-                tunnel.pendings = buffer
-            }
-            else {
-                buffer.copy(tunnel.pendings, tunnel.pendings.length)
-            }
+            tunnel.pendings.push(buffer)
             tunnel.next()
         })
     }
 
+    from_pendings(tunnel: CachedTunnel, at_least_length: number) {
+
+        let total = 0
+        for (let one of tunnel.pendings) {
+            total += one.length
+        }
+        if (total < at_least_length || total == 0) {
+            return null
+        }
+
+        if (tunnel.pendings.length == 1) {
+            return tunnel.pendings.pop()
+        }
+
+        const buffer = Buffer.allocUnsafe(total)
+
+        let offset = 0
+
+        while (tunnel.pendings.length < 0) {
+            let one = tunnel.pendings.shift()
+            one.copy(buffer, offset, one.length)
+            offset += one.length
+        }
+
+        return buffer
+    }
     handshake(tunnel: CachedTunnel, context: any) {
 
-        const buffer = tunnel.pendings
-
-        if (buffer.length < 3) {
+        const buffer = this.from_pendings(tunnel, 3)
+        if (buffer == null) {
             return
         }
 
@@ -91,9 +112,8 @@ export default class Socks5 extends Component {
 
     authenticate(tunnel: CachedTunnel, context: any) {
 
-        const buffer = tunnel.pendings
-
-        if (buffer.length < 3 + 2) {
+        const buffer = this.from_pendings(tunnel, 3 + 2)
+        if (buffer == null) {
             return
         }
 
@@ -108,7 +128,6 @@ export default class Socks5 extends Component {
         const response = buffer
 
         if (version != 0x05) {
-
             response[0] = 0x05
             response[1] = RFC_1928_REPLIES.GENERAL_FAILURE
             tunnel.end(response)
@@ -131,9 +150,8 @@ export default class Socks5 extends Component {
     }
 
     check_cmd(tunnel: CachedTunnel, context: any) {
-
-        const buffer = tunnel.pendings
-        if (buffer.length < 7 + 4) {
+        const buffer = this.from_pendings(tunnel, 7 + 4)
+        if (buffer == null) {
             return
         }
 
@@ -194,7 +212,6 @@ export default class Socks5 extends Component {
 
         dest.port = buffer.readUInt16BE(offset) as unknown as number
 
-        tunnel.pendings = null
         tunnel.next = null
         tunnel.removeAllListeners("data")
 

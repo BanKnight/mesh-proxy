@@ -16,10 +16,10 @@ components:
 
   - name: client/vless
     type: vless
-    passes:
-      tcp: server/free
+    pass: server/free
     users: 
       - id: 13170fcc-1966-507d-bce9-532cc588fcf3 #thisisuuid
 
   - name: server/free
     type: free
+    debug: true
