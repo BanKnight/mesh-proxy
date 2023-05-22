@@ -2,7 +2,7 @@ import { Server, Socket, createServer, createConnection } from "net";
 import { Component, ComponentOption, Tunnel } from "../types.js";
 
 export default class Tcp extends Component {
-    id: number = 0
+    // id: number = 0
     server?: Server
 
     constructor(options: ComponentOption) {
@@ -37,7 +37,7 @@ export default class Tcp extends Component {
 
         this.server.on('connection', (socket: Socket) => {
 
-            socket.id = `${this.name}/${++this.id}`
+            // socket.id = `${this.name}/${++this.id}`
 
             const context = {
                 source: {
@@ -51,7 +51,7 @@ export default class Tcp extends Component {
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
-            socket.on('close', (has_error) => {
+            socket.on('close', (hadError) => {
                 tunnel.destroy()
                 socket.destroy()
             });
