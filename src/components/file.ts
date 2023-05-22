@@ -12,24 +12,8 @@ export default class File extends Component {
     }
 
     ready() {
-        if (this.options.input == null) {
-            return
-        }
 
-        const context = {
-            source: {
-                path: this.options.path
-            }
-        }
-
-        const tunnel = this.createConnection(this.options.pass, context, () => {
-            const stream = fs.createReadStream(this.options.path)
-            stream.pipe(tunnel)
-        })
-
-        tunnel.once("error", (e) => {
-            tunnel.destroy(e)
-        })
+        this.options.root = this.options.root || "./files"
     }
 
     close() {
@@ -40,14 +24,21 @@ export default class File extends Component {
 
         callback()
 
-        const temp_name = Date.now().toString()
+        if (this.options.input) {
+            this.read_file(tunnel, context)
+        }
+        else {
+            this.write_file(tunnel, context)
+        }
+    }
 
-        const filename = context.source.path ? path.basename(context.source.path) : temp_name
-        const folder = this.options.path || "./files"
-        const whole = path.join(folder, filename)
+    write_file(tunnel: Tunnel, context: any) {
+
+        const whole = this.prepare(context)
+        const parent = path.resolve(whole, "../")
 
         try {
-            fs.mkdirSync(folder, { recursive: true })
+            fs.mkdirSync(parent, { recursive: true })
         }
         catch (e) { }
 
@@ -63,5 +54,37 @@ export default class File extends Component {
         })
 
         console.log("writing to", whole)
+    }
+
+    read_file(tunnel: Tunnel, context: any) {
+
+        const whole = this.prepare(context)
+        const stream = fs.createReadStream(whole)
+
+        stream.pipe(tunnel)
+        stream.on("error", () => {
+            stream.close()
+            tunnel.destroy()
+        })
+        tunnel.on("end", () => {
+            stream.close()
+            tunnel.destroy()
+        })
+        console.log("writing to", whole)
+    }
+
+    prepare(context: any) {
+        let whole: string = ""
+        if (context.dest?.path) {
+            whole = path.resolve(this.options.root, context.dest?.path)
+        }
+        else if (this.options.path) {
+            whole = path.resolve(this.options.root, this.options.path)
+        }
+        else {
+            whole = path.resolve(this.options.root, Date.now().toString())
+        }
+
+        return whole
     }
 }
