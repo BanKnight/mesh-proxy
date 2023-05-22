@@ -8,3 +8,4 @@ components:
   - name: server/to
     type: rsync
     root: ./experiment/rsync/to
+    interval: 10000

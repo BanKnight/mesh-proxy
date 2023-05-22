@@ -4,7 +4,9 @@ import path from "path"
 
 export default class Rsync extends Component {
     root: string
+    timer: NodeJS.Timer;
     files: Record<string, fs.Stats> = {}
+    interval = 0
 
     constructor(options: ComponentOption) {
         super(options)
@@ -17,6 +19,7 @@ export default class Rsync extends Component {
     ready() {
 
         this.root = path.resolve(this.options.root)
+        this.interval = this.options.interval || 5000
 
         try {
             fs.mkdirSync(this.root, { recursive: true })
@@ -25,9 +28,25 @@ export default class Rsync extends Component {
 
         this.walk(this.root)
 
+        this.timer = setInterval(() => {
+            this.files = {}
+            this.walk(this.root)
+
+            if (this.options.pass) {
+                this.check()
+            }
+        })
+
         if (this.options.pass == null) {
             return
         }
+        this.check()
+    }
+    close() {
+        clearInterval(this.timer)
+    }
+
+    check() {
         const tunnel = this.createConnection(this.options.pass, { cmd: "list" }, (files: Record<string, any>) => {
             setImmediate(this.begin_sync.bind(this, files))
             tunnel.destroy()
@@ -37,7 +56,6 @@ export default class Rsync extends Component {
             tunnel.destroy()
         })
     }
-    close() { }
 
     walk(parent: string) {
 

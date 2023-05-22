@@ -10,5 +10,6 @@ components:
     root: ./experiment/rsync/from
     pass: server/to
     check_delete: true
+    interval: 10000
 
 
