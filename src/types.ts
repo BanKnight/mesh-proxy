@@ -66,15 +66,19 @@ export type SiteOptions = http.ServerOptions & {
     ssl?: SecureContextOptions,
 }
 
-export type ConnectListener = (...args: any[]) => void
+export type ConnectListener = (error?: Error, ...args: any[]) => void
 
+export interface ConnectionContext extends Record<string, any> {
+    source?: any;
+    dest?: any
+}
 export class Component extends EventEmitter {
 
     node: Node
     name: string;
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
-    createConnection: (address: string, context: { source?: any, dest?: any }, callback?: ConnectListener) => Tunnel;
+    createConnection: (address: string, context: ConnectionContext, callback?: ConnectListener) => Tunnel;
 
     constructor(options: ComponentOption) {
         super()

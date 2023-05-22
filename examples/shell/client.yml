@@ -10,20 +10,15 @@ components:
     listen: 8099
     pass: client/write
 
-  - name: server/listen
-    type: tcp
-    listen: 8090
-    pass: client/read
-
-  - name: client/write
-    type: file
-    root: ./experiment/files
-    path: abc.txt
+  - name: client/shell
+    type: shell
+    command: echo helloworld
+    cwd: ./files
 
   - name: client/read
     type: file
     input: true
-    root: ./experiment/files
+    root: ./files
     path: abc.txt
 
 

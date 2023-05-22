@@ -1,0 +1,10 @@
+name: server
+listen: ws://localhost:8086/test
+
+auth:
+  client: { token: "token" }
+
+components: 
+  - name: server/to
+    type: rsync
+    root: ./experiment/rsync/to

@@ -14,7 +14,7 @@ components:
         pass: client/http
       /ws:
         pass: client/websocket
-        upgrade: websocket  
+        upgrade: websocket
 
   - name: client/http
     type: http

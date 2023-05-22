@@ -1,0 +1,14 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+
+components:
+  - name: client/from
+    type: rsync
+    root: ./experiment/rsync/from
+    pass: server/to
+    check_delete: true
+
+

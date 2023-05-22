@@ -12,13 +12,10 @@ export default class File extends Component {
     }
 
     ready() {
-
         this.options.root = this.options.root || "./files"
     }
 
-    close() {
-
-    }
+    close() { }
 
     connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
 

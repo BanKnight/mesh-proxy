@@ -50,7 +50,7 @@ export class Application {
         }
 
         this.prepare_self()
-        this.connect_servers()
+        await this.connect_servers()
         this.prepare_components()
 
         if (this.options.listen) {
@@ -59,7 +59,6 @@ export class Application {
 
         let last_count = 0
         setInterval(() => {
-
             let count = Object.keys(this.tunnels).length
             if (last_count != count) {
                 console.log("tunnels count", count)
@@ -68,7 +67,6 @@ export class Application {
             last_count = count
         }, 5000)
     }
-
     as_server() {
 
         this.options.listen = url.parse(this.options.listen)
@@ -114,7 +112,6 @@ export class Application {
                     node.name = data.user
                     node.socket = socket
 
-                    this.prepare_node(node)
                     this.prepare_node_socket(node)
                 })
 
@@ -124,10 +121,12 @@ export class Application {
             })
         })
     }
-    connect_servers() {
+    async connect_servers() {
         if (this.options.servers == null) {
             return
         }
+
+        const all = []
 
         for (const one of this.options.servers) {
 
@@ -136,9 +135,13 @@ export class Application {
             node.url = new URL(one.url)
             node.name = one.name
 
-            this.connect_node(node)
-            this.prepare_node(node)
+            all.push(new Promise((resolve, reject) => {
+                this.connect_node(node)
+                node.once("connect", resolve)
+            }))
         }
+
+        await Promise.all(all)
     }
 
     connect_node(node: Node, retry = 0) {
@@ -176,6 +179,8 @@ export class Application {
                     socket.ping()
                 }
             }, 1000)
+
+            node.emit("connect")
         });
 
         socket.on("error", (reason: Error) => {
@@ -237,15 +242,12 @@ export class Application {
     }
 
     prepare_self() {
+
         const node = this.nodes[this.options.name] = new Node()
         node.name = this.options.name
 
         node.setMaxListeners(Infinity)
-
-        this.prepare_node(node)
     }
-
-    prepare_node(node: Node) { }
 
     connect_component(from_component: Component, address: string, context: { source: any, dest: any }, callback?: ConnectListener) {
 
@@ -411,6 +413,7 @@ export class Application {
 
         setImmediate(() => {
             component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
+
                 if (error) {
                     tunnel.emit("error", error)
                     return
