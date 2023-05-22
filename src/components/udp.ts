@@ -7,6 +7,7 @@ interface Session {
     port: number;
     host: string;
     tunnel?: Tunnel
+    last: number         //上次收包的时间
 }
 
 export default class udp extends Component {
@@ -50,6 +51,7 @@ export default class udp extends Component {
             let session = this.sessions[id]
 
             if (session) {
+                session.last = Date.now()
                 session.tunnel.write(message)
                 return
             }
@@ -81,6 +83,7 @@ export default class udp extends Component {
             })
 
             session.tunnel.on("data", (buffer) => {
+                session.last = Date.now()
                 socket.send(buffer, remote_info.port, remote_info.address)
             })
 
@@ -94,6 +97,17 @@ export default class udp extends Component {
             })
 
             session.tunnel.write(message)
+            session.last = Date.now()
+
+            if (this.options.timeout) {
+                setInterval(() => {
+                    const now = Date.now()
+                    if (now - session.last > this.options.timeout) {
+                        session.tunnel.destroy()
+                        socket.close()
+                    }
+                },)
+            }
         })
 
         this.server.on('error', (e: any) => {
@@ -120,8 +134,12 @@ export default class udp extends Component {
             const socket = createSocket("udp4")
 
             socket.connect(this.options.connect.port, this.options.connect.host)
+
+            let last_active = Date.now()
+
             socket.on("message", (buffer) => {
                 tunnel.write(buffer)
+                last_active = Date.now()
             })
             socket.on("error", () => {
                 socket.close()
@@ -133,6 +151,7 @@ export default class udp extends Component {
             })
             tunnel.on("data", (buffer) => {
                 socket.send(buffer)
+                last_active = Date.now()
             })
             tunnel.on("error", () => {
                 socket.close()
@@ -146,6 +165,16 @@ export default class udp extends Component {
                 socket.close()
                 tunnel.end()
             })
+
+            if (this.options.timeout) {
+                setInterval(() => {
+                    const now = Date.now()
+                    if (now - last_active > this.options.timeout) {
+                        tunnel.destroy()
+                        socket.close()
+                    }
+                },)
+            }
         })
     }
 }
