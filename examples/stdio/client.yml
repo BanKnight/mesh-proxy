@@ -5,12 +5,13 @@ servers:
     url: ws://client:token@localhost:8086/test
 
 components:
-  - name: server/stdout
+  - name: server/listen
+    type: tcp
+    listen: 8099
+    pass: client/stdout
+
+  - name: client/stdout
     type: stdio
-  - name: client/stdin
-    type: stdio
-    input: true
-    pass: server/stdout
 
 
 
