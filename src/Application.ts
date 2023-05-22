@@ -4,7 +4,7 @@ import http from "http"
 import https from "https"
 import tls from "tls"
 
-import { fileURLToPath, pathToFileURL } from "url"
+import url, { fileURLToPath, pathToFileURL, UrlWithStringQuery } from "url"
 import { join, resolve, basename, dirname } from "path";
 import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
@@ -53,7 +53,7 @@ export class Application {
         this.connect_servers()
         this.prepare_components()
 
-        if (this.options.port) {
+        if (this.options.listen) {
             this.as_server()
         }
 
@@ -71,15 +71,17 @@ export class Application {
 
     as_server() {
 
+        this.options.listen = url.parse(this.options.listen)
+
         const site = this.create_site({
-            port: this.options.port,
-            host: this.options.host || "",
+            port: this.options.listen.port,
+            host: this.options.listen.host || "",
             ssl: this.options.ssl,
         })
 
         const wsserver = new WebSocketServer({ noServer: true })
 
-        site.upgrades.set(this.options.path, (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+        site.upgrades.set(this.options.listen.path, (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
 
             wsserver.handleUpgrade(req, socket, head, (socket: WSocket, req) => {
 
