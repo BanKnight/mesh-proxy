@@ -74,13 +74,13 @@ export default class Free extends Component {
             socket.destroy()
         })
 
-        tunnel.on("data", (data) => {
-            console.log(this.name, "tcp ==>", context.dest.host, context.dest.port, data.length)
-        })
+        // tunnel.on("data", (data) => {
+        //     console.log(this.name, "tcp ==>", context.dest.host, context.dest.port, data.length)
+        // })
 
-        socket.on("data", (data) => {
-            console.log(this.name, "tcp <==", context.dest.host, context.dest.port, data.length)
-        })
+        // socket.on("data", (data) => {
+        //     console.log(this.name, "tcp <==", context.dest.host, context.dest.port, data.length)
+        // })
     }
 
     handle_udp(tunnel: Tunnel, context: Context) {

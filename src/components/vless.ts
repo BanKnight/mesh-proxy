@@ -17,6 +17,7 @@ interface Session {
     host: string;
     tunnel?: Tunnel
 }
+
 export default class Vless extends Component {
 
     users = new Map<string, any>
@@ -59,6 +60,10 @@ export default class Vless extends Component {
         tunnel.on("data", (buffer: Buffer) => {
             tunnel.pendings.push(buffer)
             tunnel.next()
+        })
+
+        tunnel.on("end", () => {
+            delete this.sessions[tunnel.id]
         })
     }
 
@@ -416,28 +421,11 @@ export default class Vless extends Component {
         // this.send_end_resp(tunnel, session)
     }
 
-    mux_keepalive(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) {
-
-        let tunnel_sessions = this.sessions[tunnel.id]
-        if (tunnel_sessions == null) {
-            tunnel.end()
-            return
-        }
-
-        const id = meta.readUInt16BE().toString()
-        const session = tunnel_sessions[id]
-        if (session == null) {
-            // this.send_end_resp(tunnel, session)
-            return
-        }
-    }
+    mux_keepalive(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) { }
 
     send_keep_resp(tunnel: Tunnel, session: Session, extra: Buffer) {
 
-        let meta = session.meta
-        if (session.protocol == "tcp") {
-            meta = session.meta.subarray(0, 4)
-        }
+        const meta = session.meta.subarray(0, 4)
 
         meta[2] = 2
         meta[3] = 1
