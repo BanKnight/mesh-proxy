@@ -56,13 +56,6 @@ export default class udp extends Component {
                 return
             }
 
-            this.sessions[session.id] = session = {
-                id,
-                port: remote_info.port,
-                host: remote_info.address,
-                protocol: "udp",
-            } as Session
-
             const context = {
                 source: {
                     socket: {
@@ -73,6 +66,13 @@ export default class udp extends Component {
                     }
                 }
             }
+
+            this.sessions[session.id] = session = {
+                id,
+                port: remote_info.port,
+                host: remote_info.address,
+                protocol: "udp",
+            } as Session
 
             session.tunnel = this.createConnection(this.options.pass, context)
             session.tunnel.write(message)

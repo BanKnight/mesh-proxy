@@ -1,0 +1,17 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+
+components:
+  - name: server/listen
+    type: tcp
+    listen: 8099
+    pass: client/file
+
+  - name: client/file
+    type: file
+
+
+

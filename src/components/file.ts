@@ -1,14 +1,14 @@
 import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
 import fs from "fs"
 import path from "path"
-export default class Tcp extends Component {
+export default class File extends Component {
 
     constructor(options: ComponentOption) {
         super(options)
 
         this.on("ready", this.ready.bind(this))
         this.on("close", this.close.bind(this))
-        this.on("connection", this.close.bind(this))
+        this.on("connection", this.connection.bind(this))
     }
 
     ready() {
@@ -40,16 +40,28 @@ export default class Tcp extends Component {
 
         callback()
 
-        const temp_name = (new Date()).toLocaleString()
+        const temp_name = Date.now().toString()
 
         const filename = context.source.path ? path.basename(context.source.path) : temp_name
         const folder = this.options.path || "./files"
         const whole = path.join(folder, filename)
 
-        fs.mkdirSync(folder, { recursive: true })
+        try {
+            fs.mkdirSync(folder, { recursive: true })
+        }
+        catch (e) { }
 
         const stream = fs.createWriteStream(whole)
 
         tunnel.pipe(stream)
+        tunnel.on("end", () => {
+            tunnel.end()
+            stream.end()
+        })
+        stream.on("finish", () => {
+            tunnel.end()
+        })
+
+        console.log("writing to", whole)
     }
 }
