@@ -102,8 +102,8 @@ export default class Http extends Component {
         })
     }
 
-    handle_upgrade(location: Location, req: http.IncomingMessage, res: http.ServerResponse) {
-        this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (wsocket: WebSocket) => {
+    handle_upgrade(location: Location, req: http.IncomingMessage, socket: Duplex, head: Buffer) {
+        this.wsserver.handleUpgrade(req, socket, head, (wsocket: WebSocket) => {
             const context = {
                 source: {
                     method: req.method,

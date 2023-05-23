@@ -81,8 +81,8 @@ export class Application {
         const that = this
         const location: Location = {
             upgrade: "websocket",
-            callback(req, resp) {
-                wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WSocket, req) => {
+            callback(req, socket: Duplex, head: Buffer) {
+                wsserver.handleUpgrade(req, socket, head, (socket: WSocket, req) => {
 
                     socket.setMaxListeners(Infinity)
                     socket.on("message", (data: Buffer, isBinanry) => {
@@ -874,47 +874,47 @@ export class Application {
             location.callback(req, res)
         })
 
-        // server.on("upgrade", (req, socket, head) => {
+        server.on("upgrade", (req, socket, head) => {
 
-        //     let site = get_site(req)
-        //     if (site == null) {
-        //         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //         socket.destroy();
-        //         return;
-        //     }
+            let site = get_site(req)
+            if (site == null) {
+                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                socket.destroy();
+                return;
+            }
 
-        //     if (site.auth.size > 0) {
-        //         const credentials = basic_auth(req)
-        //         if (credentials == null) {
-        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //             socket.destroy();
-        //             return;
-        //         }
+            if (site.auth.size > 0) {
+                const credentials = basic_auth(req)
+                if (credentials == null) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
 
-        //         const pass = site.auth.get(credentials.username)
+                const pass = site.auth.get(credentials.username)
 
-        //         if (pass != credentials.password) {
-        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        //             socket.destroy();
-        //             return
-        //         }
-        //     }
+                if (pass != credentials.password) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return
+                }
+            }
 
-        //     const index = req.url.indexOf('?');
-        //     const uri = index !== -1 ? req.url.slice(0, index) : req.url;
+            const index = req.url.indexOf('?');
+            const uri = index !== -1 ? req.url.slice(0, index) : req.url;
 
-        //     const location = find(site, uri)   //location
-        //     if (location == null) {
-        //         socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
-        //         socket.destroy();
-        //         return;
-        //     }
-        //     req.socket.setTimeout(0);
-        //     req.socket.setNoDelay(true);
-        //     req.socket.setKeepAlive(true, 0);
+            const location = find(site, uri)   //location
+            if (location == null) {
+                socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+            req.socket.setTimeout(0);
+            req.socket.setNoDelay(true);
+            req.socket.setKeepAlive(true, 0);
 
-        //     location(req, socket, head)
-        // })
+            location.callback(req, socket, head)
+        })
         server.listen(server.port, () => {
             console.log("http listening:", server.port)
         })

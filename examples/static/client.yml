@@ -18,4 +18,5 @@ components:
     root: ./experiment/static
     cors: true
     index: index.html
+    maxage: 360000
     

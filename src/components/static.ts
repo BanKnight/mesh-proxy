@@ -19,6 +19,8 @@ const gzip = promisify(zlib.gzip)
 //https://www.npmjs.com/package/koa-static-cache?activeTab=code
 //https://www.npmjs.com/package/koa-etag?activeTab=code
 
+//https://www.npmjs.com/package/send?activeTab=code
+//https://www.npmjs.com/package/serve-static?activeTab=code
 export default class Static extends Component {
     root: string
     caches: LRUCache<string, CacheInfo>
@@ -57,6 +59,16 @@ export default class Static extends Component {
             return
         }
 
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+
+            // method not allowed
+            res.statusCode = 405
+            res.setHeader('Allow', 'GET, HEAD')
+            res.setHeader('Content-Length', '0')
+            res.end()
+            return
+        }
+
         req.url = decode(req.url)
 
         const relative = "." + (req.url == "/" ? "/" + this.options.index : req.url)
@@ -72,13 +84,6 @@ export default class Static extends Component {
             res.end('File not found');
             return;
         }
-
-        if (this.options.cors) {
-            res.setHeader('Access-Control-Allow-Origin', '*');
-        }
-
-        res.setHeader('Content-Type', `${type};charset=utf-8`);
-
         let stats: fs.Stats
 
         try {
@@ -106,6 +111,12 @@ export default class Static extends Component {
             return
         }
 
+        if (this.options.cors) {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+        }
+
+        res.setHeader('Content-Type', `${type};charset=utf-8`);
+
         res.setHeader('Last-Modified', stats.mtime.toUTCString())
         res.setHeader('Etag', etag)
 
@@ -124,7 +135,7 @@ export default class Static extends Component {
             }
         }
 
-        const directives = [`max-age=${((this.options.maxage || 0) / 1000 | 0)}`]
+        const directives = [`public,max-age=${this.options.maxage || 0}`]
         if (this.options.immutable) {
             directives.push('immutable')
         }
