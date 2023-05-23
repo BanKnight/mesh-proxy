@@ -1,0 +1,21 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+
+components:
+  - name: server/http
+    type: http
+    host: localhost
+    port: 80
+    locations:
+      /:
+        pass: client/static
+
+  - name: client/static
+    type: static
+    root: ./experiment/static
+    cors: true
+    index: index.html
+    

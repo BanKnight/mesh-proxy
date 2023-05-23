@@ -8,7 +8,7 @@ import url, { fileURLToPath, pathToFileURL, UrlWithStringQuery } from "url"
 import { join, resolve, basename, dirname } from "path";
 import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
-import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener } from "./types.js";
+import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener, Location } from "./types.js";
 import { basic_auth } from "./utils.js"
 import { Duplex } from "stream"
 
@@ -78,48 +78,52 @@ export class Application {
         })
 
         const wsserver = new WebSocketServer({ noServer: true })
+        const that = this
+        const location: Location = {
+            upgrade: "websocket",
+            callback(req, resp) {
+                wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (socket: WSocket, req) => {
 
-        site.upgrades.set(this.options.listen.path, (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+                    socket.setMaxListeners(Infinity)
+                    socket.on("message", (data: Buffer, isBinanry) => {
+                        const { event, args } = deserialize(data)
+                        socket.emit(event, ...args)
+                    })
 
-            wsserver.handleUpgrade(req, socket, head, (socket: WSocket, req) => {
-
-                socket.setMaxListeners(Infinity)
-                socket.on("message", (data: Buffer, isBinanry) => {
-                    const { event, args } = deserialize(data)
-                    socket.emit(event, ...args)
-                })
-
-                socket.write = (event: string, ...args: any[]) => {
-                    socket.send(serialize({ event, args }))
-                }
-                socket.once("auth", (data: { user: string, token: string }) => {
-
-                    const config_user = this.options.auth[data.user]
-                    if (config_user == null || config_user.token != data.token) {
-                        socket.write("auth_failed")
-                        socket.close()
-                        return
+                    socket.write = (event: string, ...args: any[]) => {
+                        socket.send(serialize({ event, args }))
                     }
+                    socket.once("auth", (data: { user: string, token: string }) => {
 
-                    console.log(`node[${data.user}] logined`)
+                        const config_user = that.options.auth[data.user]
+                        if (config_user == null || config_user.token != data.token) {
+                            socket.write("auth_failed")
+                            socket.close()
+                            return
+                        }
 
-                    let node = this.nodes[data.user]
-                    if (node) {
-                        return
-                    }
+                        console.log(`node[${data.user}] logined`)
 
-                    node = this.nodes[data.user] = new Node()
-                    node.name = data.user
-                    node.socket = socket
+                        let node = that.nodes[data.user]
+                        if (node) {
+                            return
+                        }
 
-                    this.prepare_node_socket(node)
+                        node = that.nodes[data.user] = new Node()
+                        node.name = data.user
+                        node.socket = socket
+
+                        that.prepare_node_socket(node)
+                    })
+
+                    socket.on("error", (error: Error) => {
+                        console.error(error)
+                    })
                 })
+            }
+        }
 
-                socket.on("error", (error: Error) => {
-                    console.error(error)
-                })
-            })
-        })
+        site.locations.set(this.options.listen.path, location)
     }
     async connect_servers() {
         if (this.options.servers == null) {
@@ -696,7 +700,6 @@ export class Application {
         site = {
             host: options.host,
             locations: new Map(),
-            upgrades: new Map(),
             auth: new Map(),
         }
 
@@ -713,7 +716,7 @@ export class Application {
 
         for (const [port, server] of this.httpservers) {
             for (let [domain, site] of server.sites) {
-                if (site.locations.size == 0 && site.upgrades.size == 0) {
+                if (site.locations.size == 0) {
                     server.sites.delete(domain)
                 }
             }
@@ -725,6 +728,8 @@ export class Application {
             }
         }
     }
+
+
 
     create_http_server(options: SiteOptions) {
 
@@ -762,6 +767,71 @@ export class Application {
             return site
         }
 
+        const extract_locations = {}
+        const prefix_locations: { path: string, location: Location }[] = []
+        const reg_locations: { path: string, location: Location }[] = []
+        const default_locations: { path: string, location: Location }[] = []
+
+        let prepare_locations = false
+
+        function prepare(site: SiteInfo) {
+
+            if (prepare_locations) {
+                return
+            }
+            for (let [path, location] of site.locations) {
+                if (path.startsWith("=")) {
+                    extract_locations[path.substring(2)] = location
+                }
+                else if (path.startsWith("^~")) {
+                    prefix_locations.push({ path: path.substring(2), location })
+                }
+                else if (path.startsWith("/")) {
+                    default_locations.push({ path, location })
+                }
+                else {
+                    reg_locations.push({ path, location })
+                }
+            }
+
+            function compare(first: { path: string }, second: { path: string }) {
+                return first.path.length - second.path.length
+            }
+
+            prefix_locations.sort(compare)
+            reg_locations.sort(compare)
+            default_locations.sort(compare)
+        }
+
+        function find(site: SiteInfo, uri: string): Location | null {
+
+            prepare(site)
+
+            let location = extract_locations[uri]
+            if (location) {
+                return location
+            }
+
+            for (const { path, location } of prefix_locations) {
+                if (uri.startsWith(path)) {
+                    return location
+                }
+            }
+
+            for (const { path, location } of reg_locations) {
+                const reg = new RegExp(path)
+                if (reg.test(uri)) {
+                    return location
+                }
+            }
+
+            for (const { path, location } of default_locations) {
+                if (uri.startsWith(path)) {
+                    return location
+                }
+            }
+        }
+
         server.on("request", (req, res) => {
             let site = get_site(req)
             if (site == null) {
@@ -792,58 +862,59 @@ export class Application {
             req.socket.setTimeout(0)
 
             const index = req.url.indexOf('?');
-            const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+            const uri = index !== -1 ? req.url.slice(0, index) : req.url;
 
-            const location = site.locations.get(pathname)    //location
+            const location = find(site, uri)   //location
             if (location == null) {
                 res.writeHead(404);
                 res.end("Not found");
                 return;
             }
-            location(req, res)
+
+            location.callback(req, res)
         })
 
-        server.on("upgrade", (req, socket, head) => {
+        // server.on("upgrade", (req, socket, head) => {
 
-            let site = get_site(req)
-            if (site == null) {
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
-                return;
-            }
+        //     let site = get_site(req)
+        //     if (site == null) {
+        //         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //         socket.destroy();
+        //         return;
+        //     }
 
-            if (site.auth.size > 0) {
-                const credentials = basic_auth(req)
-                if (credentials == null) {
-                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                    socket.destroy();
-                    return;
-                }
+        //     if (site.auth.size > 0) {
+        //         const credentials = basic_auth(req)
+        //         if (credentials == null) {
+        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //             socket.destroy();
+        //             return;
+        //         }
 
-                const pass = site.auth.get(credentials.username)
+        //         const pass = site.auth.get(credentials.username)
 
-                if (pass != credentials.password) {
-                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                    socket.destroy();
-                    return
-                }
-            }
+        //         if (pass != credentials.password) {
+        //             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        //             socket.destroy();
+        //             return
+        //         }
+        //     }
 
-            const index = req.url.indexOf('?');
-            const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+        //     const index = req.url.indexOf('?');
+        //     const uri = index !== -1 ? req.url.slice(0, index) : req.url;
 
-            const location = site.upgrades.get(pathname)    //location
-            if (location == null) {
-                socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
-                socket.destroy();
-                return;
-            }
-            req.socket.setTimeout(0);
-            req.socket.setNoDelay(true);
-            req.socket.setKeepAlive(true, 0);
+        //     const location = find(site, uri)   //location
+        //     if (location == null) {
+        //         socket.write('HTTP/1.1 401 unsupport this location\r\n\r\n');
+        //         socket.destroy();
+        //         return;
+        //     }
+        //     req.socket.setTimeout(0);
+        //     req.socket.setNoDelay(true);
+        //     req.socket.setKeepAlive(true, 0);
 
-            location(req, socket, head)
-        })
+        //     location(req, socket, head)
+        // })
         server.listen(server.port, () => {
             console.log("http listening:", server.port)
         })

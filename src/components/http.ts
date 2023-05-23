@@ -2,7 +2,7 @@ import { WebSocket, WebSocketServer, createWebSocketStream } from "ws"
 import https from "https"
 import http from "http"
 import url, { UrlWithStringQuery } from "url"
-import { Component, ComponentOption, SiteInfo, Tunnel } from "../types.js";
+import { Component, ComponentOption, SiteInfo, Tunnel, Location } from "../types.js";
 import { url_join, has_port } from "../utils.js";
 import { Duplex } from "stream";
 
@@ -37,14 +37,20 @@ export default class Http extends Component {
 
         for (let path in this.options.locations) {
             const location = this.options.locations[path]
+
+            let cb = null
+
             if (location.upgrade) {
-                const cb = this.handle_upgrade.bind(this, location)
-                site.upgrades.set(path, cb)
+                cb = this.handle_upgrade.bind(this, location)
             }
             else {
-                const cb = this.handle_request.bind(this, location)
-                site.locations.set(path, cb)
+                cb = this.handle_request.bind(this, location)
             }
+
+            site.locations.set(path, {
+                callback: cb,
+                upgrade: location.upgrade
+            })
         }
     }
 
@@ -54,13 +60,7 @@ export default class Http extends Component {
         }
 
         for (let path in this.options.locations) {
-            const location = this.options.locations[path]
-            if (location.upgrade) {
-                this.site.upgrades.delete(path)
-            }
-            else {
-                this.site.locations.delete(path)
-            }
+            this.site.locations.delete(path)
         }
     }
     handle_request(location: any, req: http.IncomingMessage, res: http.ServerResponse) {
@@ -92,7 +92,7 @@ export default class Http extends Component {
             }
         })
 
-        req.pipe(tunnel).pipe(res)
+        req.pipe(tunnel, { end: true }).pipe(res, { end: true })
 
         tunnel.once("error", (e) => {
             if (!res.headersSent) {
@@ -102,8 +102,8 @@ export default class Http extends Component {
         })
     }
 
-    handle_upgrade(location: any, req: http.IncomingMessage, socket: Duplex, head: Buffer) {
-        this.wsserver.handleUpgrade(req, socket, head, (wsocket: WebSocket) => {
+    handle_upgrade(location: Location, req: http.IncomingMessage, res: http.ServerResponse) {
+        this.wsserver.handleUpgrade(req, req.socket, Buffer.alloc(0), (wsocket: WebSocket) => {
             const context = {
                 source: {
                     method: req.method,
@@ -122,7 +122,7 @@ export default class Http extends Component {
                     },
                 }
             }
-            const stream = createWebSocketStream(wsocket, location)
+            const stream = createWebSocketStream(wsocket, location as unknown)
             const tunnel = this.createConnection(location.pass, context)
 
             req.socket.setKeepAlive(true)

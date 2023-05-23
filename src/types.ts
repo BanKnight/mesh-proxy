@@ -135,12 +135,16 @@ export class Tunnel extends Duplex {
 
 export type CachedTunnel = Tunnel & { pendings?: Buffer[], next?: Function }
 
+export interface Location extends Record<string, any> {
+    callback: (req: http.IncomingMessage, res: http.ServerResponse) => void
+    upgrade?: string
+}
+
 // export type Location = (req: http.IncomingMessage, res: http.ServerResponse) => void
 export interface SiteInfo {
     host: string;
     context?: tls.SecureContext;
-    locations: Map<string, Function>;
-    upgrades: Map<string, Function>;
+    locations: Map<string, Location>;
     auth: Map<string, string>
 }
 
