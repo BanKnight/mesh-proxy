@@ -13,7 +13,7 @@ export default class Socks5 extends Component {
     }
 
     ready() {
-        if (this.options.passes == null) {
+        if (this.options.pass == null) {
             this.emit("error", new Error("no pass defined in the options"))
         }
 
@@ -83,7 +83,6 @@ export default class Socks5 extends Component {
             methods.push(buffer[i]);
         }
 
-        tunnel.pendings = null
         tunnel.next = null
 
         const noauth = this.users.size == 0
@@ -106,6 +105,7 @@ export default class Socks5 extends Component {
 
         if (tunnel.next == null) {
             tunnel.end()
+            tunnel.destroy()
             return
         }
     }
@@ -144,8 +144,6 @@ export default class Socks5 extends Component {
 
         response[1] = RFC_1928_REPLIES.SUCCEEDED
         tunnel.write(response.subarray(0, 2))
-
-        tunnel.pendings = null
         tunnel.next = this.check_cmd.bind(this, tunnel, context)
     }
 
@@ -174,7 +172,8 @@ export default class Socks5 extends Component {
         let dest = {
             host: "",
             protocol: null,
-            port: 0
+            port: 0,
+            // family: "",
         }
 
         let offset = 4
@@ -182,6 +181,7 @@ export default class Socks5 extends Component {
         switch (atyp) {
             case RFC_1928_ATYP.IPV4:
                 {
+                    // dest.family = "IPV4"
                     dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
                 }
                 break
@@ -189,6 +189,7 @@ export default class Socks5 extends Component {
                 {
                     const size = buffer[offset++]
                     dest.host = buffer.subarray(offset, offset += size).toString()
+                    // dest.family = "domain"
                 }
                 break
             case RFC_1928_ATYP.IPV6:
@@ -202,6 +203,7 @@ export default class Socks5 extends Component {
                     })
 
                     dest.host = address.join(":")
+                    // dest.family = "IPV6"
                 }
                 break
             default:
@@ -219,7 +221,7 @@ export default class Socks5 extends Component {
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:
-                dest.protocol = "bind"
+                // dest.protocol = "bind"
                 this.on_cmd_bind(tunnel, context, response)
                 break
             case RFC_1928_COMMANDS.CONNECT:
@@ -240,7 +242,7 @@ export default class Socks5 extends Component {
 
     on_cmd_connect(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
 
-        const next = this.createConnection(this.options.passes.tcp, context, () => {
+        const next = this.createConnection(this.options.pass, context, () => {
             resp[1] = RFC_1928_REPLIES.SUCCEEDED
             tunnel.write(resp)
         })

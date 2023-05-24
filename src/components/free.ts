@@ -1,7 +1,7 @@
 import * as dgram from 'dgram';
 import { Socket, createConnection } from "net";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
-import { read_address, write_address } from 'src/utils.js';
+import { read_address, write_address } from '../utils.js';
 
 const temp = Buffer.alloc(255)
 export default class Free extends Component {

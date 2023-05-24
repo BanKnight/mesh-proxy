@@ -140,6 +140,6 @@ export default class Tcp extends Component {
             stream.destroy()
             tunnel.end()
         })
-        tunnel.pipe(stream).pipe(tunnel)
+        tunnel.pipe(stream, { end: true }).pipe(tunnel, { end: true })
     }
 }

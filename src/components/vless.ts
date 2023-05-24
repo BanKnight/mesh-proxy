@@ -181,7 +181,7 @@ export default class Vless extends Component {
         return true
     }
 
-    tcp(tunnel: Tunnel, context: any) {
+    tcp(tunnel: Tunnel, context: ConnectionContext) {
 
         const pass = this.options.pass
         if (pass == null) {
@@ -208,22 +208,29 @@ export default class Vless extends Component {
         })
     }
 
-    udp(tunnel: Tunnel, context: any) {
+    udp(tunnel: Tunnel, context: ConnectionContext) {
         this.tcp(tunnel, context)
     }
-    mux(tunnel: CachedTunnel, context: any) {
+    mux(tunnel: CachedTunnel, context: ConnectionContext) {
 
         const buffer = this.fetch_all_pendins(tunnel, 2 + 2 + 1 + 1)
         if (buffer == null) {
             return
         }
-        const meta_length = buffer.readUInt16BE(0)
+        const meta_length = buffer.readUInt16BE()
         if (2 + meta_length > buffer.length) {      //没有收全
             tunnel.pendings.push(buffer)
             return
         }
 
+        if (meta_length == 0) {
+            tunnel.end()
+            tunnel.destroy()
+            return
+        }
+
         const meta = buffer.subarray(2, 2 + meta_length)
+        const type = meta[2]
         const has_extra = meta[3] == 1
 
         const extra_length_start = 2 + meta_length
@@ -237,15 +244,8 @@ export default class Vless extends Component {
         const extra_start = extra_length_start + 2
         const extra = has_extra ? buffer.subarray(extra_start, extra_start + extra_length) : null
 
-        const type = meta[2]
+        console.log("😈 recv mux cmd", tunnel.id, type)
 
-        const left = buffer.subarray(extra_start + extra_length)
-
-        if (left.length > 0) {
-            tunnel.pendings.push(left)
-        }
-
-        console.log("😈 recv mux cmd", tunnel.id, type, "left", left.length)
         switch (type) {
             case 1:     //new
                 this.mux_new(tunnel, context, meta, extra)
@@ -264,9 +264,16 @@ export default class Vless extends Component {
                 tunnel.destroy()
                 break
         }
+
+        const left = buffer.subarray(extra_start + extra_length)
+
+        if (left.length > 0) {
+            tunnel.pendings.push(left)
+            this.mux(tunnel, context)
+        }
     }
 
-    mux_new(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) {
+    mux_new(tunnel: CachedTunnel, context: ConnectionContext, meta: Buffer, extra?: Buffer) {
 
         const session: Session = {
             id: meta.readUInt16BE().toString(),
@@ -332,7 +339,7 @@ export default class Vless extends Component {
         tunnel_sessions[session.id] = session
     }
 
-    mux_keep(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) {
+    mux_keep(tunnel: CachedTunnel, context: ConnectionContext, meta: Buffer, extra?: Buffer) {
 
         let tunnel_sessions = this.sessions[tunnel.id]
         if (tunnel_sessions == null) {
@@ -353,7 +360,7 @@ export default class Vless extends Component {
         session.tunnel.write(extra)
     }
 
-    mux_end(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) {
+    mux_end(tunnel: CachedTunnel, context: ConnectionContext, meta: Buffer, extra?: Buffer) {
 
         let tunnel_sessions = this.sessions[tunnel.id]
         if (tunnel_sessions == null) {
@@ -376,7 +383,7 @@ export default class Vless extends Component {
         // this.send_end_resp(tunnel, session)
     }
 
-    mux_keepalive(tunnel: CachedTunnel, context: any, meta: Buffer, extra?: Buffer) { }
+    mux_keepalive(tunnel: CachedTunnel, context: ConnectionContext, meta: Buffer, extra?: Buffer) { }
 
     send_keep_resp(tunnel: Tunnel, session: Session, extra: Buffer) {
 
