@@ -218,31 +218,41 @@ export default class Vless extends Component {
             return
         }
         const meta_length = buffer.readUInt16BE()
+
+        if (meta_length < 4) {
+            tunnel.destroy()
+            return
+        }
+
         if (2 + meta_length > buffer.length) {      //没有收全
             tunnel.pendings.push(buffer)
             return
         }
 
-        if (meta_length == 0) {
-            tunnel.end()
-            tunnel.destroy()
-            return
-        }
-
         const meta = buffer.subarray(2, 2 + meta_length)
         const type = meta[2]
+
         const has_extra = meta[3] == 1
 
         const extra_length_start = 2 + meta_length
         const extra_length = has_extra ? buffer.readUInt16BE(extra_length_start) : 0
 
-        if (extra_length > 0 && extra_length_start + 2 + extra_length > buffer.length) {
+        if (has_extra && extra_length_start + 2 + extra_length > buffer.length) {
             tunnel.pendings.push(buffer)
             return
         }
 
-        const extra_start = extra_length_start + 2
-        const extra = has_extra ? buffer.subarray(extra_start, extra_start + extra_length) : null
+        let extra: Buffer | null
+        let left: Buffer | null
+
+        if (has_extra) {
+            const extra_start = extra_length_start + 2
+            extra = buffer.subarray(extra_start, extra_start + extra_length)
+            left = buffer.subarray(extra_start + extra_length)
+        }
+        else {
+            left = buffer.subarray(2 + meta_length)
+        }
 
         console.log("😈 recv mux cmd", tunnel.id, type)
 
@@ -265,9 +275,9 @@ export default class Vless extends Component {
                 break
         }
 
-        const left = buffer.subarray(extra_start + extra_length)
 
-        if (left.length > 0) {
+        if (left && left.length > 0) {
+            console.log("😈 recv mux left > 0", tunnel.id, type)
             tunnel.pendings.push(left)
             this.mux(tunnel, context)
         }

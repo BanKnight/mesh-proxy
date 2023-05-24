@@ -106,6 +106,8 @@ export class Application {
 
                         let node = that.nodes[data.user]
                         if (node) {
+                            socket.close()
+                            console.log(`conflict node[${data.user}] logined, closed`)
                             return
                         }
 
