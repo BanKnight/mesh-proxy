@@ -2,7 +2,7 @@ import { WebSocket, WebSocketServer, createWebSocketStream } from "ws"
 import https from "https"
 import http from "http"
 import url, { UrlWithStringQuery } from "url"
-import { Component, ComponentOption, SiteInfo, Tunnel, Location } from "../types.js";
+import { Component, ComponentOption, SiteInfo, Tunnel, Location, ConnectionContext, ConnectListener } from "../types.js";
 import { url_join, has_port } from "../utils.js";
 import { Duplex } from "stream";
 
@@ -144,7 +144,7 @@ export default class Http extends Component {
             })
         })
     }
-    connection(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         if (this.options.address == null) {
             callback(new Error("no address"))
@@ -156,7 +156,7 @@ export default class Http extends Component {
         }
         return this.pass_websocket(tunnel, context, callback)
     }
-    pass_request(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
+    pass_request(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         const outoptions = this.req_options(context.source)
         const target = this.options.address
@@ -193,7 +193,7 @@ export default class Http extends Component {
         // proxyReq.end()
     }
 
-    pass_websocket(tunnel: Tunnel, context: any, callback: (...args: any[]) => void) {
+    pass_websocket(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         callback()
 

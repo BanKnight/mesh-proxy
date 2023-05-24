@@ -1,5 +1,5 @@
 import { Server, Socket, createServer, createConnection } from "net";
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Tcp extends Component {
     // id: number = 0
@@ -83,7 +83,7 @@ export default class Tcp extends Component {
     }
 
     connect() {
-        this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
+        this.on("connection", (tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) => {
 
             const socket = createConnection(this.options.connect || context.dest, () => {
                 callback()

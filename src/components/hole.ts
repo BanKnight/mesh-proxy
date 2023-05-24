@@ -1,4 +1,4 @@
-import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Hole extends Component {
     constructor(options: ComponentOption) {
@@ -16,7 +16,7 @@ export default class Hole extends Component {
         }
     }
 
-    connection(tunnel: Tunnel, context: any, callback: Function) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         if (this.options.response == "http") {
             callback(null, {

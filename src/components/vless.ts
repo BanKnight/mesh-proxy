@@ -1,6 +1,6 @@
 import { stringify, v5, validate } from "uuid"
-import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectListener } from "../types.js";
-import { table } from "console";
+import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectListener, ConnectionContext } from "../types.js";
+import { read_address } from "../utils.js";
 
 const vless_success_resp = Buffer.from([0, 0])
 const protocol_type_to_name = {
@@ -48,7 +48,7 @@ export default class Vless extends Component {
     // 00                   00                                  01                 01bb(443)   02(ip/host)
     // 1 字节	              1 字节	      N 字节	         Y 字节
     // 协议版本，与请求的一致	附加信息长度 N	附加信息 ProtoBuf	响应数据
-    connection(tunnel: CachedTunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: CachedTunnel, context: ConnectionContext, callback: ConnectListener) {
 
         callback()
 
@@ -93,7 +93,7 @@ export default class Vless extends Component {
         return buffer
     }
 
-    head(tunnel: CachedTunnel, context: any) {
+    head(tunnel: CachedTunnel, context: ConnectionContext) {
 
         const buffer = this.fetch_all_pendins(tunnel, 24)
         if (buffer == null) {
@@ -142,33 +142,10 @@ export default class Vless extends Component {
 
         offset += 2
 
-        const address_type = buffer[offset++]
-        switch (address_type) {
-            case 0x01:      //ipv4
-                {
-                    dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
-                }
-                break
-            case 0x02:      //domain
-                {
-                    const size = buffer[offset++]
-                    dest.host = buffer.subarray(offset, offset += size).toString()
-                }
-                break
-            case 0x03:      //ipv6
-                {
-                    const address = []
-
-                    for (let i = 0; i < 8; i++) {
-                        address.push(buffer.readUint16BE(offset).toString(16));
-                        offset += 2
-                    }
-                    dest.host = address.join(":")
-                }
-                break
-            default:
-                tunnel.destroy(new Error(`invild  addressType is ${address_type}`))
-                return
+        offset = read_address(buffer, dest, offset)
+        if (!dest.host) {
+            tunnel.destroy(new Error(`invalid  addressType`))
+            return
         }
 
         // tunnel.pendings = null
@@ -298,34 +275,12 @@ export default class Vless extends Component {
             port: meta.readUInt16BE(5),
             host: "",
         }
-        const address_type = meta[7]
-        let offset = 8
-        switch (address_type) {
-            case 0x1:      //ipv4
-                {
-                    session.host = `${meta[offset++]}.${meta[offset++]}.${meta[offset++]}.${meta[offset++]}`
-                }
-                break
-            case 0x02:      //domain
-                {
-                    const size = meta[offset++]
-                    session.host = meta.subarray(offset, offset += size).toString()
-                }
-                break
-            case 0x03:      //ipv6
-                {
-                    const address = []
 
-                    for (let i = 0; i < 8; i++) {
-                        address.push(meta.readUint16BE(offset).toString(16));
-                        offset += 2
-                    }
-                    session.host = address.join(":")
-                }
-                break
-            default:
-                tunnel.destroy(new Error(`invild  addressType is ${address_type}`))
-                return
+        read_address(meta, session, 7)
+
+        if (!session.host) {
+            tunnel.destroy(new Error(`invalid addressType`))
+            return
         }
 
         let tunnel_sessions = this.sessions[tunnel.id]

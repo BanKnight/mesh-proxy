@@ -69,8 +69,20 @@ export type SiteOptions = http.ServerOptions & {
 export type ConnectListener = (error?: Error, ...args: any[]) => void
 
 export interface ConnectionContext extends Record<string, any> {
-    source?: any;
-    dest?: any
+    source?: {
+        socket?: {
+            remoteAddress: string
+            remotePort: number
+        },
+        [key: string]: any
+    };
+    dest?: {
+        host?: string;
+        port?: number;
+        protocol?: "tcp" | "udp";
+        family?: "ipv4" | "ipv6";
+        [key: string]: any
+    }
 }
 export class Component extends EventEmitter {
 

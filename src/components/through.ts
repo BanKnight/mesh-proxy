@@ -1,4 +1,4 @@
-import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Through extends Component {
     constructor(options: ComponentOption) {
@@ -16,7 +16,7 @@ export default class Through extends Component {
         }
     }
 
-    connection(tunnel: Tunnel, context: any, callback: Function) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
         if (this.options.pass == null) {
             callback(new Error(`"component[${this.name}] pass required`))
             tunnel.destroy()

@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { createInterface } from "readline"
 
-import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Shell extends Component {
 
@@ -29,7 +29,7 @@ export default class Shell extends Component {
     }
     close() { }
 
-    connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         // const readObj = createInterface({
         //     input: tunnel

@@ -1,4 +1,4 @@
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 export default class Stdio extends Component {
 
     constructor(options: ComponentOption) {
@@ -30,7 +30,7 @@ export default class Stdio extends Component {
 
     close() { }
 
-    connection(tunnel: Tunnel, context: any, callback: Function) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
         callback()
         tunnel.pipe(process.stdout)
     }

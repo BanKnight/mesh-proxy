@@ -1,4 +1,4 @@
-import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 import fs from "fs"
 import path from "path"
 export default class File extends Component {
@@ -17,7 +17,7 @@ export default class File extends Component {
 
     close() { }
 
-    connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         callback()
 
@@ -29,7 +29,7 @@ export default class File extends Component {
         }
     }
 
-    write_file(tunnel: Tunnel, context: any) {
+    write_file(tunnel: Tunnel, context: ConnectionContext) {
 
         const whole = this.prepare(context)
         const parent = path.resolve(whole, "../")

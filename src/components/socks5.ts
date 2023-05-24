@@ -1,4 +1,4 @@
-import { Component, ComponentOption, CachedTunnel, Tunnel } from "../types.js";
+import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectionContext, ConnectListener } from "../types.js";
 
 export default class Socks5 extends Component {
 
@@ -23,7 +23,7 @@ export default class Socks5 extends Component {
     }
     close() { }
 
-    connection(tunnel: CachedTunnel, context: any, callback: Function) {
+    connection(tunnel: CachedTunnel, context: ConnectionContext, callback: ConnectListener) {
 
         callback()
 
@@ -61,7 +61,7 @@ export default class Socks5 extends Component {
 
         return buffer
     }
-    handshake(tunnel: CachedTunnel, context: any) {
+    handshake(tunnel: CachedTunnel, context: ConnectionContext) {
 
         const buffer = this.from_pendings(tunnel, 3)
         if (buffer == null) {
@@ -110,7 +110,7 @@ export default class Socks5 extends Component {
         }
     }
 
-    authenticate(tunnel: CachedTunnel, context: any) {
+    authenticate(tunnel: CachedTunnel, context: ConnectionContext) {
 
         const buffer = this.from_pendings(tunnel, 3 + 2)
         if (buffer == null) {
@@ -149,7 +149,7 @@ export default class Socks5 extends Component {
         tunnel.next = this.check_cmd.bind(this, tunnel, context)
     }
 
-    check_cmd(tunnel: CachedTunnel, context: any) {
+    check_cmd(tunnel: CachedTunnel, context: ConnectionContext) {
         const buffer = this.from_pendings(tunnel, 7 + 4)
         if (buffer == null) {
             return
@@ -233,12 +233,12 @@ export default class Socks5 extends Component {
         }
     }
 
-    on_cmd_bind(tunnel: CachedTunnel, context: any, resp: Buffer) {
+    on_cmd_bind(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }
 
-    on_cmd_connect(tunnel: CachedTunnel, context: any, resp: Buffer) {
+    on_cmd_connect(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
 
         const next = this.createConnection(this.options.passes.tcp, context, () => {
             resp[1] = RFC_1928_REPLIES.SUCCEEDED
@@ -261,15 +261,15 @@ export default class Socks5 extends Component {
 
     }
 
-    on_cmd_udp(tunnel: CachedTunnel, context: any, resp: Buffer) {
+    on_cmd_udp(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
         resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
         tunnel.end(resp)
     }
 }
 
 const RFC_1928_ATYP = {
-    DOMAINNAME: 0x03,
     IPV4: 0x01,
+    DOMAINNAME: 0x03,
     IPV6: 0x04
 }
 

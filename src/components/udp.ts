@@ -1,5 +1,5 @@
 import { Socket, createSocket } from "dgram";
-import { Component, ComponentOption, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 interface Session {
     id: string;
@@ -127,7 +127,7 @@ export default class udp extends Component {
     }
 
     connect() {
-        this.on("connection", (tunnel: Tunnel, context: any, callback: Function) => {
+        this.on("connection", (tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) => {
 
             callback()
 

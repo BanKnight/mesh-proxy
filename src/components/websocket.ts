@@ -3,7 +3,7 @@ import * as https from 'https';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import ws from 'ws';
-import { Component, ComponentOption, ConnectListener, Tunnel } from "../types.js";
+import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 type IdWsSocket = ws.WebSocket & { id: string }
 
@@ -116,7 +116,7 @@ export default class Tcp extends Component {
             // }
         });
     }
-    connection(tunnel: Tunnel, context: any, callback: ConnectListener) {
+    connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         if (this.options.address == null) {
             const error = new Error(`component[${this.name}]:no component`)
