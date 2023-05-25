@@ -3,7 +3,7 @@ import { Socket, createConnection } from "net";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 import { read_address, write_address } from '../utils.js';
 
-const temp = Buffer.alloc(255)
+let temp = Buffer.alloc(1024)
 export default class Free extends Component {
     constructor(options: ComponentOption) {
         super(options)
@@ -61,7 +61,7 @@ export default class Free extends Component {
                 },
                 remote: {
                     address: socket.remoteAddress,
-                    port: socket.remoteAddress,
+                    port: socket.remotePort,
                     family: socket.remoteFamily,
                 }
 
@@ -123,8 +123,10 @@ export default class Free extends Component {
                 callback(error)
             }
 
-            socket.close()
+            console.error(error)
+
             tunnel.end()
+            socket.disconnect()
         })
 
         socket.on("close", () => {
@@ -132,17 +134,17 @@ export default class Free extends Component {
         })
 
         tunnel.on("error", () => {
-            socket.close()
             tunnel.end()
+            socket.disconnect()
         })
 
         tunnel.on("end", () => {
-            socket.close()
             tunnel.end()
+            socket.disconnect()
         })
         tunnel.on("close", () => {
-            socket.close()
             tunnel.end()
+            socket.disconnect()
         })
 
         if (should_connect) {   //指定了对端地址，那么所有的数据都是直接发送的
@@ -165,19 +167,32 @@ export default class Free extends Component {
             const dest: any = {}
 
             tunnel.on("data", (buffer: Buffer) => {
-                const offset = read_address(buffer, dest, 0, context.socks5 == true)
-                if (dest.port) {
-                    socket.send(buffer.subarray(offset), dest.port, dest.host)
-                }
+
+                let offset = read_address(buffer, dest, 0, context.socks5 == true)
+                dest.port = buffer.readUint16BE(offset)
+
+                offset += 2
+                socket.send(buffer.subarray(offset), dest.port, dest.host)
             })
 
             socket.on("message", (buffer, rinfo) => {
-                const end = write_address(temp, rinfo, 0, context.socks5 == true)
-                tunnel.write(temp.subarray(0, end))
-                tunnel.write(buffer)
+
+                const need_length = buffer.length + 7       // address_type(1) + address(4) + port(2)
+
+                let curr = temp
+                if (curr.length < need_length) {
+                    curr = Buffer.allocUnsafe(need_length)
+                }
+
+                let offset = write_address(curr, rinfo, 0, context.socks5 == true)
+                offset = curr.writeUint16BE(rinfo.port, offset)
+
+                offset += buffer.copy(curr, offset)
+
+                tunnel.write(curr.subarray(0, offset))
             })
 
-            socket.bind(0, () =>   //绑定到本地的一个系统分配的地址，然后固化下来
+            socket.bind(() =>   //绑定到本地的一个系统分配的地址，然后固化下来
             {
                 has_callbacked = true
                 callback(null, socket.address())

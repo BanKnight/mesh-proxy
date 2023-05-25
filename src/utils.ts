@@ -126,8 +126,11 @@ export function read_address(buffer: Buffer, address: any, offset: number = 0, i
             }
             break
         default:
+            address.host = null
             break
     }
+
+    address.address = address.host
 
     return offset
 }
@@ -142,7 +145,7 @@ export function write_address(buffer: Buffer, address: any, offset: number = 0, 
     switch (address.family) {
         case "IPv4":
             {
-                const array = address.host.split(".")
+                const array = (address.address || address.host).split(".")
 
                 for (let i = 0; i < 4; ++i) {
                     const val = parseInt(array[i])
@@ -154,7 +157,7 @@ export function write_address(buffer: Buffer, address: any, offset: number = 0, 
             break
         case "IPv6":
             {
-                const array = address.host.split(":")
+                const array = (address.address || address.host).split(":")
 
                 for (let i = 0; i < 8; ++i) {
                     const val = parseInt(array[i], 16)
@@ -167,7 +170,7 @@ export function write_address(buffer: Buffer, address: any, offset: number = 0, 
             break
         default:        //Domain
             {
-                const sub = Buffer.from(address.host)
+                const sub = Buffer.from((address.address || address.host))
 
                 buffer[offset++] = sub.byteLength
 

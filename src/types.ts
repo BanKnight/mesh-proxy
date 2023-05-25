@@ -73,14 +73,17 @@ export interface ConnectionContext extends Record<string, any> {
         socket?: {
             remoteAddress: string
             remotePort: number
+            family: string
+            protocol?: "tcp" | "udp" | "http";
+            [key: string]: any
         },
         [key: string]: any
     };
     dest?: {
         host?: string;
         port?: number;
-        protocol?: "tcp" | "udp";
-        family?: "ipv4" | "ipv6";
+        protocol?: "tcp" | "udp" | "http";
+        family?: "IPv4" | "IPv6";
         [key: string]: any
     }
 }

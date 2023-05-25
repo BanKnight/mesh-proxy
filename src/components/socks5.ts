@@ -4,7 +4,7 @@ import { read_address, write_address } from '../utils.js';
 
 //https://www.cnblogs.com/zahuifan/articles/2816789.html
 //https://guiyongdong.github.io/2017/12/09/Socks5%E4%BB%A3%E7%90%86%E5%88%86%E6%9E%90/
-const temp = Buffer.alloc(100)
+let temp = Buffer.alloc(1024)
 export default class Socks5 extends Component {
 
     users = new Map<string, any>()
@@ -175,7 +175,6 @@ export default class Socks5 extends Component {
         const version = buffer[0]
         const cmd = buffer[1]
         const rsv = buffer[2]
-        const atyp = buffer[3]
 
         const response = buffer
 
@@ -195,43 +194,21 @@ export default class Socks5 extends Component {
             family: null,
         }
 
-        let offset = 4
+        let offset = read_address(buffer, dest, 3, true)
 
-        switch (atyp) {
-            case RFC_1928_ATYP.IPV4:
-                {
-                    dest.family = "IPV4"
-                    dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
-                }
-                break
-            case RFC_1928_ATYP.DOMAINNAME:
-                {
-                    const size = buffer[offset++]
-                    dest.host = buffer.subarray(offset, offset += size).toString()
-                    // dest.family = "domain"
-                }
-                break
-            case RFC_1928_ATYP.IPV6:
-                {
-                    const size = 16
-                    const address = []
-
-                    buffer.subarray(offset, offset += size).forEach((x) => {
-                        address.push((x >>> 16).toString(16));
-                        address.push(((x & 0xffff)).toString(16));
-                    })
-
-                    dest.host = address.join(":")
-                    dest.family = "IPV6"
-                }
-                break
-            default:
-                response[1] = RFC_1928_REPLIES.GENERAL_FAILURE
-                tunnel.end(response)
-                return
+        if (offset < 5 + 3) {
+            response[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+            tunnel.end(response)
+            return
         }
-
         dest.port = buffer.readUInt16BE(offset) as unknown as number
+        offset += 2
+
+        const left = buffer.subarray(offset)
+
+        if (left.length > 0) {
+            tunnel.unshift(left)
+        }
 
         tunnel.next = null
         tunnel.removeAllListeners("data")
@@ -304,19 +281,12 @@ export default class Socks5 extends Component {
         //和之前的是dest不同
         let source = context.dest
 
-        if (source.port == 0) {
-            resp[1] = RFC_1928_REPLIES.CONNECTION_NOT_ALLOWED
-            tunnel.end(resp)
-            tunnel.destroy()
-            return
-        }
-
         //同样的，自己也建立一个udp地址，用来映射源
         //由于udp可以通过localAddress+localPort 往不同的 remoteAddress + remotePort 发送
         const next = this.createConnection(this.options.pass, { dest: { protocol: "udp" }, socks5: true })
         const socket = dgram.createSocket("udp4")
 
-        socket.bind(0, () => {      //告诉客户端用这个地址连过来
+        socket.bind(() => {      //告诉客户端用这个地址连过来
             temp[0] = 0x05
             temp[1] = RFC_1928_REPLIES.SUCCEEDED
             temp[2] = 0
@@ -324,16 +294,19 @@ export default class Socks5 extends Component {
             const address = socket.address()
 
             let offset = write_address(temp, {
-                host: address.address,
-                port: address.port,
+                host: this.options.relay || (address.address == "0.0.0.0" ? "127.0.0.1" : address.address),
                 family: address.family
             }, 3, true)
 
             offset = temp.writeUint16BE(address.port, offset)
 
             tunnel.write(temp.subarray(0, offset))      //告知客户端
-        })
 
+            console.log(`component[${this.name}] is listening ${socket.address().address}:${socket.address().port}`)
+
+            // resp[1] = RFC_1928_REPLIES.CONNECTION_NOT_ALLOWED
+            // tunnel.write(resp)
+        })
 
         /**
          *  +----+------+------+----------+----------+----------+
@@ -343,7 +316,12 @@ export default class Socks5 extends Component {
             +----+------+------+----------+----------+----------+
          */
         socket.on("message", (buffer, rinfo) => {
-            if (rinfo.address != source.host || rinfo.port != source.port) {
+
+            if (source.port == 0) {
+                source.port = rinfo.port
+                source.host = rinfo.address
+            }
+            else if (rinfo.port != source.port || (rinfo.address != source.host && source.host != "0.0.0.0")) {
                 destroy_all()
                 return
             }
@@ -358,13 +336,18 @@ export default class Socks5 extends Component {
 
         next.on("data", (buffer: Buffer) => {   //buffer中已经是有带地址的了
 
-            const resp = Buffer.allocUnsafe(3 + buffer.length)
+            const need_length = buffer.length + 3
+            let curr = temp
 
-            resp[0] = resp[1] = 0
-            resp[2] = 0
+            if (curr.length < need_length) {
+                curr = Buffer.allocUnsafe(need_length)
+            }
 
-            buffer.copy(resp, 3)
-            socket.send(resp, source.port, source.host)
+            curr[0] = curr[1] = 0
+            curr[2] = 0
+
+            const bytes = buffer.copy(curr, 3)
+            socket.send(curr.subarray(0, 3 + bytes), source.port, source.host)
         })
 
         function destroy_all() {
@@ -372,6 +355,10 @@ export default class Socks5 extends Component {
             next.destroy()
             tunnel.destroy()
         }
+
+        tunnel.on("data", (data: Buffer) => {
+            console.log("recv data", data.length)
+        })
 
         tunnel.on("error", destroy_all)
         tunnel.on("end", destroy_all)

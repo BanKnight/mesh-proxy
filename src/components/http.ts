@@ -66,7 +66,7 @@ export default class Http extends Component {
     handle_request(location: any, req: http.IncomingMessage, res: http.ServerResponse) {
 
         // const outoptions = this.req_options(req)
-        const context = {
+        const context: ConnectionContext = {
             source: {
                 method: req.method,
                 headers: req.headers,
@@ -78,6 +78,8 @@ export default class Http extends Component {
                 socket: {
                     remoteAddress: req.socket.remoteAddress,
                     remotePort: req.socket.remotePort,
+                    family: req.socket.remoteFamily,
+                    protocol: "http"
                 },
                 // ...outoptions
             }
@@ -104,7 +106,7 @@ export default class Http extends Component {
 
     handle_upgrade(location: Location, req: http.IncomingMessage, socket: Duplex, head: Buffer) {
         this.wsserver.handleUpgrade(req, socket, head, (wsocket: WebSocket) => {
-            const context = {
+            const context: ConnectionContext = {
                 source: {
                     method: req.method,
                     headers: req.headers,
@@ -119,6 +121,7 @@ export default class Http extends Component {
                         localAddress: req.socket.localAddress,
                         localPort: req.socket.localPort,
                         localFamily: req.socket.localFamily,
+                        family: req.socket.remoteFamily,
                     },
                 }
             }

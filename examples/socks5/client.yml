@@ -9,8 +9,8 @@ components:
     type: tcp
     listen: 1080
     pass: client/socks5
-    # debug: true
 
+    # debug: true
   - name: client/socks5
     type: socks5
     pass: server/free

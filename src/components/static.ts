@@ -47,7 +47,7 @@ export default class Static extends Component {
 
     async connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
-        const req = context.source as http.IncomingMessage
+        const req = context.source as unknown as http.IncomingMessage
         const res = new Response()
 
         res.headSender = callback

@@ -42,7 +42,7 @@ export default class udp extends Component {
         const socket = this.server = createSocket("udp4")
 
         this.server.on("listening", () => {
-            console.log(`component[${this.name}] is listening ${this.options.listen}`)
+            console.log(`component[${this.name}] is listening ${socket.address().address}:${socket.address().port}`)
         })
 
         this.server.on('message', (message, remote_info) => {
@@ -56,7 +56,7 @@ export default class udp extends Component {
                 return
             }
 
-            const context = {
+            const context: ConnectionContext = {
                 source: {
                     socket: {
                         protocol: "udp",
