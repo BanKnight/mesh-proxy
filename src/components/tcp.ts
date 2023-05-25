@@ -51,6 +51,7 @@ export default class Tcp extends Component {
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
+
             socket.on('close', (hadError) => {
                 tunnel.destroy()
                 socket.destroy()
@@ -64,6 +65,20 @@ export default class Tcp extends Component {
                 socket.destroy()
                 tunnel.destroy()
             })
+
+            if (this.options.debug) {
+                socket.on("end", () => {
+                    console.log("socket end")
+                })
+
+                socket.on("data", (data: Buffer) => {
+                    console.log(this.name, "recv socket data", data.length)
+                })
+
+                tunnel.on("data", (data: Buffer) => {
+                    console.log(this.name, "recv tunnel data", data.length)
+                })
+            }
         })
 
         this.server.on('error', (e: any) => {

@@ -52,7 +52,7 @@ export default class Vless extends Component {
 
         callback()
 
-        console.log("😀 recv new vless connection", tunnel.id)
+        // console.log("😀 recv new vless connection", tunnel.id)
 
         tunnel.pendings = []
         tunnel.write(vless_success_resp)      //回应
@@ -305,7 +305,7 @@ export default class Vless extends Component {
             tunnel_sessions = this.sessions[tunnel.id] = {}
         }
 
-        console.log("😀 recv mux new", tunnel.id, session.id, session.host, session.protocol)
+        // console.log("😀 recv mux new", tunnel.id, session.id, session.host, session.protocol)
 
         session.tunnel = this.createConnection(this.options.pass, { source: context.source, dest: session })
 

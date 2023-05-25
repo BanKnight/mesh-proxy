@@ -1,5 +1,10 @@
+import * as dgram from 'dgram';
 import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectionContext, ConnectListener } from "../types.js";
+import { read_address, write_address } from '../utils.js';
 
+//https://www.cnblogs.com/zahuifan/articles/2816789.html
+//https://guiyongdong.github.io/2017/12/09/Socks5%E4%BB%A3%E7%90%86%E5%88%86%E6%9E%90/
+const temp = Buffer.alloc(100)
 export default class Socks5 extends Component {
 
     users = new Map<string, any>()
@@ -33,6 +38,16 @@ export default class Socks5 extends Component {
             tunnel.pendings.push(buffer)
             tunnel.next()
         })
+
+        if (this.options.debug) {
+            tunnel.on("data", (data: Buffer) => {
+                console.log(this.name, "recv tunnel data", data.length)
+            })
+
+            tunnel.on("end", () => {
+                console.log(this.name, "end")
+            })
+        }
     }
 
     from_pendings(tunnel: CachedTunnel, at_least_length: number) {
@@ -101,7 +116,9 @@ export default class Socks5 extends Component {
             }
         }
 
-        tunnel.write(response.subarray(0, 2))
+        const resp = response.subarray(0, 2)
+
+        tunnel.write(resp)
 
         if (tunnel.next == null) {
             tunnel.end()
@@ -145,10 +162,12 @@ export default class Socks5 extends Component {
         response[1] = RFC_1928_REPLIES.SUCCEEDED
         tunnel.write(response.subarray(0, 2))
         tunnel.next = this.check_cmd.bind(this, tunnel, context)
+
+        tunnel.next()
     }
 
     check_cmd(tunnel: CachedTunnel, context: ConnectionContext) {
-        const buffer = this.from_pendings(tunnel, 7 + 4)
+        const buffer = this.from_pendings(tunnel, 7 + 3)
         if (buffer == null) {
             return
         }
@@ -169,11 +188,11 @@ export default class Socks5 extends Component {
             return
         }
 
-        let dest = {
+        let dest = context.dest = {
             host: "",
             protocol: null,
             port: 0,
-            // family: "",
+            family: null,
         }
 
         let offset = 4
@@ -181,7 +200,7 @@ export default class Socks5 extends Component {
         switch (atyp) {
             case RFC_1928_ATYP.IPV4:
                 {
-                    // dest.family = "IPV4"
+                    dest.family = "IPV4"
                     dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
                 }
                 break
@@ -203,7 +222,7 @@ export default class Socks5 extends Component {
                     })
 
                     dest.host = address.join(":")
-                    // dest.family = "IPV6"
+                    dest.family = "IPV6"
                 }
                 break
             default:
@@ -216,8 +235,6 @@ export default class Socks5 extends Component {
 
         tunnel.next = null
         tunnel.removeAllListeners("data")
-
-        dest = context.dest = Object.assign(context.dest || {}, dest)
 
         switch (cmd) {
             case RFC_1928_COMMANDS.BIND:
@@ -242,9 +259,20 @@ export default class Socks5 extends Component {
 
     on_cmd_connect(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
 
-        const next = this.createConnection(this.options.pass, context, () => {
-            resp[1] = RFC_1928_REPLIES.SUCCEEDED
-            tunnel.write(resp)
+        //返回对端的地址给到客户端
+        const next = this.createConnection(this.options.pass, { ...context, socks5: true }, (linfo: any) => {
+            temp[0] = 0x05
+            temp[1] = RFC_1928_REPLIES.SUCCEEDED
+            temp[2] = 0
+
+            let offset = write_address(temp, {
+                host: linfo.remote.address,
+                family: linfo.remote.family
+            }, 3, true)
+
+            offset = temp.writeUint16BE(linfo.remote.port, offset)
+
+            tunnel.write(temp.subarray(0, offset))      //告知客户端
         })
 
         tunnel.pipe(next).pipe(tunnel)
@@ -263,9 +291,98 @@ export default class Socks5 extends Component {
 
     }
 
+    /**
+     * udp是映射源的思路，tcp是映射目标的思路
+     * @param tunnel 
+     * @param context 
+     * @param resp 
+     * @returns 
+     */
     on_cmd_udp(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
-        resp[1] = RFC_1928_REPLIES.COMMAND_NOT_SUPPORTED
-        tunnel.end(resp)
+
+        //此时的dest实际是客户端的源udp地址
+        //和之前的是dest不同
+        let source = context.dest
+
+        if (source.port == 0) {
+            resp[1] = RFC_1928_REPLIES.CONNECTION_NOT_ALLOWED
+            tunnel.end(resp)
+            tunnel.destroy()
+            return
+        }
+
+        //同样的，自己也建立一个udp地址，用来映射源
+        //由于udp可以通过localAddress+localPort 往不同的 remoteAddress + remotePort 发送
+        const next = this.createConnection(this.options.pass, { dest: { protocol: "udp" }, socks5: true })
+        const socket = dgram.createSocket("udp4")
+
+        socket.bind(0, () => {      //告诉客户端用这个地址连过来
+            temp[0] = 0x05
+            temp[1] = RFC_1928_REPLIES.SUCCEEDED
+            temp[2] = 0
+
+            const address = socket.address()
+
+            let offset = write_address(temp, {
+                host: address.address,
+                port: address.port,
+                family: address.family
+            }, 3, true)
+
+            offset = temp.writeUint16BE(address.port, offset)
+
+            tunnel.write(temp.subarray(0, offset))      //告知客户端
+        })
+
+
+        /**
+         *  +----+------+------+----------+----------+----------+
+            |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            +----+------+------+----------+----------+----------+
+            | 2  |  1   |  1   | Variable |    2     | Variable |
+            +----+------+------+----------+----------+----------+
+         */
+        socket.on("message", (buffer, rinfo) => {
+            if (rinfo.address != source.host || rinfo.port != source.port) {
+                destroy_all()
+                return
+            }
+            // 是否支持SOCKS碎片是可选的，如果一个SOCKS实现不支持SOCKS碎片，则必须丢弃所
+            // 有接收到的SOCKS碎片，即那些FRAG字段非零的SOCKS UDP报文。
+            const frag = buffer[2]
+            if (frag != 0) {
+                return
+            }
+            next.write(buffer.subarray(3))    //带地址传过去
+        })
+
+        next.on("data", (buffer: Buffer) => {   //buffer中已经是有带地址的了
+
+            const resp = Buffer.allocUnsafe(3 + buffer.length)
+
+            resp[0] = resp[1] = 0
+            resp[2] = 0
+
+            buffer.copy(resp, 3)
+            socket.send(resp, source.port, source.host)
+        })
+
+        function destroy_all() {
+            socket.disconnect()
+            next.destroy()
+            tunnel.destroy()
+        }
+
+        tunnel.on("error", destroy_all)
+        tunnel.on("end", destroy_all)
+        tunnel.on("close", destroy_all)
+
+        next.on("error", destroy_all)
+        next.on("end", destroy_all)
+        next.on("close", destroy_all)
+
+        socket.on("error", destroy_all)
+        socket.on("close", destroy_all)
     }
 }
 

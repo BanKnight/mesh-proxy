@@ -60,40 +60,69 @@ export function handle_upgrade(req: http.IncomingMessage, res: http.ServerRespon
     },);
 }
 
+const S5_AddressType =
+{
+    [1]: "IPv4",
+    [3]: "domain",
+    [4]: "IPv6"
+}
+
+const S5_AddressType_Value = {
+    IPv4: 1,
+    domain: 3,
+    IPv6: 4
+}
+
+const Common_AddressType =
+{
+    [1]: "IPv4",
+    [2]: "domain",
+    [3]: "IPv6"
+}
+
+const Common_AddressType_Value = {
+    IPv4: 1,
+    domain: 2,
+    IPv6: 3
+}
+
 /**
  * addresstype: 01-->ipv4,02-->domain,03-->ipv6
+ * socks5:IPV4: 0x01,domain:03,ipv6:04
  * @param buffer 
  * @param offset 
- * @param dest 
+ * @param address 
  * @returns 
  */
-export function read_address(buffer: Buffer, dest: any, offset: number = 0) {
+export function read_address(buffer: Buffer, address: any, offset: number = 0, is_sockes5 = false) {
 
-    //socks5     IPV4: 0x01,domain:03,ipv6:04
+    const names = is_sockes5 ? S5_AddressType : Common_AddressType
     const address_type = buffer[offset++]
-    switch (address_type) {
-        case 0x1:      //ipv4
+    const name = names[address_type]
+
+    switch (name) {
+        case "IPv4":      //ipv4
             {
-                dest.family = "ipv4"
-                dest.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
+                address.family = "IPv4"
+                address.host = `${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}.${buffer[offset++]}`
             }
             break
-        case 0x02:      //domain
+        case "domain":      //domain
             {
                 const size = buffer[offset++]
-                dest.host = buffer.subarray(offset, offset += size).toString()
+                address.host = buffer.subarray(offset, offset += size).toString()
             }
             break
-        case 0x03:      //ipv6
+        case "IPv6":      //ipv6
             {
-                const address = []
+                const array = []
 
-                dest.family = "ipv6"
                 for (let i = 0; i < 8; i++) {
-                    address.push(buffer.readUint16BE(offset).toString(16));
+                    array.push(buffer.readUint16BE(offset).toString(16));
                     offset += 2
                 }
-                dest.host = address.join(":")
+                address.family = "IPv6"
+                address.host = array.join(":")
             }
             break
         default:
@@ -103,39 +132,29 @@ export function read_address(buffer: Buffer, dest: any, offset: number = 0) {
     return offset
 }
 
-export function write_address(buffer: Buffer, dest: any, offset: number = 0) {
+export function write_address(buffer: Buffer, address: any, offset: number = 0, is_sockes5 = false) {
 
     const address_type_pos = offset
+    const names = is_sockes5 ? S5_AddressType_Value : Common_AddressType_Value
 
     buffer[offset++] = 1
 
-    switch (dest.family) {
-        case "ipv4":
+    switch (address.family) {
+        case "IPv4":
             {
-                const array = dest.host.split(".")
+                const array = address.host.split(".")
 
                 for (let i = 0; i < 4; ++i) {
                     const val = parseInt(array[i])
                     buffer[offset++] = val
                 }
 
-                buffer[address_type_pos] = 1
+                buffer[address_type_pos] = names["IPv4"]
             }
             break
-        case "domain":
+        case "IPv6":
             {
-                const sub = Buffer.from(dest.host)
-
-                buffer[offset++] = sub.byteLength
-
-                sub.copy(buffer, offset, 0, offset += sub.byteLength)
-
-                buffer[address_type_pos] = 2
-            }
-            break
-        case "ipv6":
-            {
-                const array = dest.host.split(":")
+                const array = address.host.split(":")
 
                 for (let i = 0; i < 8; ++i) {
                     const val = parseInt(array[i], 16)
@@ -143,7 +162,18 @@ export function write_address(buffer: Buffer, dest: any, offset: number = 0) {
                     offset += 2
                 }
 
-                buffer[address_type_pos] = 1
+                buffer[address_type_pos] = names["IPv6"]
+            }
+            break
+        default:        //Domain
+            {
+                const sub = Buffer.from(address.host)
+
+                buffer[offset++] = sub.byteLength
+
+                sub.copy(buffer, offset, 0, offset += sub.byteLength)
+
+                buffer[address_type_pos] = names["domain"]
             }
             break
     }
