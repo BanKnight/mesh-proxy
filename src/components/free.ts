@@ -89,7 +89,7 @@ export default class Free extends Component {
                 }
             }
 
-            tunnel.end()
+            tunnel.destroy()
             socket.destroy()
         })
 

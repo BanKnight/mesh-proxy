@@ -537,12 +537,9 @@ export class Application {
             })
 
             tunnel.cork()
-            component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
+            component.emit("connection", tunnel, ...args, (...args: any[]) => {
                 tunnel.uncork()
-                node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
-                if (error) {
-                    delete this.tunnels[id]
-                }
+                node.socket?.write("tunnel::connection", id, ...args)
             })
 
             let destroy = (reason: string) => {
@@ -558,34 +555,19 @@ export class Application {
             component.once("close", destroy.bind(null, "component close"))
         })
 
-        node.socket.on("tunnel::connection", (id: string, error?: Error, ...args: any[]) => {
+        node.socket.on("tunnel::connection", (id: string, ...args: any[]) => {
 
             const tunnel = this.tunnels[id]
             if (tunnel == null) {
-                if (!error) {
-                    node.socket.write("tunnel::close", id)
-                }
+                node.socket.write("tunnel::close", id)
                 return
             }
 
-            if (error) {
-                const e = new Error(error.message)
 
-                e.name = error.name;
-                e.stack = error.stack;
+            tunnel.connecting = false
+            tunnel.readyState = "open"
 
-                delete this.tunnels[id]
-
-                tunnel.emit("error", e)
-
-                // console.log(this.name, "tunnel::connection error", node.name, tunnel.id)
-            }
-            else {
-                tunnel.connecting = false
-                tunnel.readyState = "open"
-
-                tunnel.emit("connect", ...args)
-            }
+            tunnel.emit("connect", ...args)
         })
 
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {

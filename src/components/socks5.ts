@@ -262,8 +262,8 @@ export default class Socks5 extends Component {
                     tunnel.end(resp)
                 }
             }
-            // tunnel.destroy(e)
-            // next.destroy()
+            tunnel.destroy(e)
+            next.destroy()
         })
 
     }
