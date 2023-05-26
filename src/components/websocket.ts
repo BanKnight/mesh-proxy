@@ -122,7 +122,7 @@ export default class Tcp extends Component {
 
         if (this.options.address == null) {
             const error = new Error(`component[${this.name}]:no component`)
-            callback(error)
+            tunnel.destroy(error)
             return
         }
 

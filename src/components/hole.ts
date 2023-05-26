@@ -19,13 +19,12 @@ export default class Hole extends Component {
     connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
         if (this.options.response == "http") {
-            callback(null, {
+            callback({
                 statusCode: 40,
                 statusMessage: "blackhole",
             })
-        }
-        else {
-            callback()
+
+            return
         }
 
         tunnel.on("data", (data) => { })
@@ -38,7 +37,6 @@ export default class Hole extends Component {
         tunnel.on("close", () => {
             tunnel.end()
         })
-
     }
 
     close() {

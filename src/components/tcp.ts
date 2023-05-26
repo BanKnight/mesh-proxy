@@ -103,22 +103,20 @@ export default class Tcp extends Component {
     connect() {
         this.on("connection", (tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) => {
 
-            const socket = createConnection(this.options.connect || context.dest, () => {
-                callback()
-            })
+            const socket = createConnection(this.options.connect || context.dest, callback)
 
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
+
             socket.on('close', (has_error) => {
-                tunnel.end()
+                tunnel.destroy()
                 socket.destroy()
             });
 
-            socket.on("error", (error: Error) => {
-                if (socket.pending) {
-                    callback(error)
-                }
+            socket.once("error", (error: Error) => {
+                socket.destroy()
+                tunnel.destroy(error)
             })
         })
     }

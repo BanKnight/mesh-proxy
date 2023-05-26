@@ -414,16 +414,13 @@ export class Application {
 
         revert.connecting = false
         revert.readyState = "open"
+        revert.cork()
 
         component.once("close", destroy.bind(null, revert.id, `tunnel[${revert.id}] destroy because parent[${component.name}] closed`))
-
         setImmediate(() => {
-            component.emit("connection", revert, context, (error?: Error, ...args: any[]) => {
+            component.emit("connection", revert, context, (...args: any[]) => {
 
-                if (error) {
-                    tunnel.emit("error", error)
-                    return
-                }
+                revert.uncork()
 
                 tunnel.connecting = false
                 tunnel.readyState = "open"
@@ -539,7 +536,9 @@ export class Application {
                 tunnel.end()
             })
 
+            tunnel.cork()
             component.emit("connection", tunnel, ...args, (error?: Error, ...args: any[]) => {
+                tunnel.uncork()
                 node.socket?.write("tunnel::connection", id, this.wrap_error(error), ...args)
                 if (error) {
                     delete this.tunnels[id]

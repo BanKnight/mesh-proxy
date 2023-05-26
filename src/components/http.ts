@@ -148,9 +148,8 @@ export default class Http extends Component {
         })
     }
     connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
-
         if (this.options.address == null) {
-            callback(new Error("no address"))
+            tunnel.destroy(new Error("no address"))
             return
         }
         const address = this.options.address as UrlWithStringQuery
@@ -164,7 +163,7 @@ export default class Http extends Component {
         const outoptions = this.req_options(context.source)
         const target = this.options.address
         const proxyReq = (target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
-            callback(null, {        //这里可以修改头部
+            callback({        //这里可以修改头部
                 httpVersion: proxyRes.httpVersion,
                 statusCode: proxyRes.statusCode,
                 statusMessage: proxyRes.statusMessage,

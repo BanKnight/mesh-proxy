@@ -46,14 +46,12 @@ export default class Free extends Component {
             keepAlive: true,
             noDelay: true,
             timeout: 0,
-        } as any)
-
-        socket.on("connect", () => {
+        } as any, () => {
             if (this.options.debug) {
                 console.log(this.name, "tcp connected", context.dest.host, context.dest.port)
             }
 
-            callback(null, {
+            callback({
                 local: {
                     address: socket.localAddress,
                     port: socket.localPort,
@@ -66,9 +64,9 @@ export default class Free extends Component {
                 }
 
             })
-
-            socket.pipe(tunnel).pipe(socket)
         })
+
+        socket.pipe(tunnel).pipe(socket)
         socket.on('end', () => {
             tunnel.end()
             // socket.destroy()
@@ -89,15 +87,15 @@ export default class Free extends Component {
                 if (this.options.debug) {
                     console.log(this.name, "tcp connect failed", context.dest.host, context.dest.port)
                 }
-                callback(error)
             }
 
             tunnel.end()
             socket.destroy()
         })
 
-        tunnel.on("data", (data) => {
+        tunnel.on("data", (data: Buffer) => {
             console.log(this.name, "tcp ==>", context.dest.host, context.dest.port, data.length)
+            // console.log(data.toString("utf-8"))
         })
 
         socket.on("data", (data) => {
@@ -113,19 +111,10 @@ export default class Free extends Component {
             console.log(this.name, "udp try connect", context.dest.host, context.dest.port)
         }
 
-        let has_callbacked = false
-
         const socket = dgram.createSocket("udp4")
 
         socket.on("error", (error: Error) => {
-
-            if (!has_callbacked) {
-                callback(error)
-            }
-
-            console.error(error)
-
-            tunnel.end()
+            tunnel.destroy(error)
             socket.disconnect()
         })
 
@@ -150,8 +139,7 @@ export default class Free extends Component {
         if (should_connect) {   //指定了对端地址，那么所有的数据都是直接发送的
 
             socket.connect(context.dest.port, context.dest.host, () => {
-                has_callbacked = true
-                callback(null, socket.address())
+                callback(socket.address())
             })
 
             tunnel.on("data", (buffer) => {
@@ -194,8 +182,7 @@ export default class Free extends Component {
 
             socket.bind(() =>   //绑定到本地的一个系统分配的地址，然后固化下来
             {
-                has_callbacked = true
-                callback(null, socket.address())
+                callback(socket.address())
             })
         }
     }

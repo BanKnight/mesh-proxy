@@ -180,7 +180,7 @@ export default class Rsync extends Component {
     }
 
     do_list(tunnel: Tunnel, context: any, callback: ConnectListener) {
-        callback(null, this.files)
+        callback(this.files)
         tunnel.end()
     }
 

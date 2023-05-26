@@ -209,7 +209,29 @@ export default class Vless extends Component {
     }
 
     udp(tunnel: Tunnel, context: ConnectionContext) {
-        this.tcp(tunnel, context)
+        const pass = this.options.pass
+        if (pass == null) {
+            tunnel.destroy(new Error(`no next pass`))
+            return
+        }
+
+        const next = this.createConnection(pass, context)
+
+        // tunnel.write(vless_success_resp)      //回应
+        // tunnel.unshift(head)
+        tunnel.pipe(next).pipe(tunnel)
+        tunnel.on("close", () => {
+            next.end()
+            tunnel.end()
+        })
+        next.on("end", () => {
+            next.end()
+            tunnel.end()
+        })
+        next.on("error", (e) => {
+            next.end()
+            tunnel.end()
+        })
     }
     mux(tunnel: CachedTunnel, context: ConnectionContext) {
 

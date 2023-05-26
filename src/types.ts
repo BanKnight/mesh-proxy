@@ -66,7 +66,7 @@ export type SiteOptions = http.ServerOptions & {
     ssl?: SecureContextOptions,
 }
 
-export type ConnectListener = (error?: Error, ...args: any[]) => void
+export type ConnectListener = (...args: any[]) => void
 
 export interface ConnectionContext extends Record<string, any> {
     source?: {

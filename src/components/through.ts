@@ -22,16 +22,12 @@ export default class Through extends Component {
             tunnel.destroy()
             return
         }
-        const next = this.createConnection(this.options.pass, context, () => {
-            callback()
-            tunnel.pipe(next).pipe(tunnel)
-        })
+        const next = this.createConnection(this.options.pass, context, callback)
+
+        tunnel.pipe(next).pipe(tunnel)
 
         next.on("error", (e) => {
-            if (next.readyState == "opening") {
-                callback(e)
-            }
-            tunnel.destroy()
+            tunnel.destroy(e)
             next.destroy()
         })
 

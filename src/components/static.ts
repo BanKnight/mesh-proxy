@@ -241,7 +241,7 @@ class Response {
             return
         }
 
-        this.headSender(null, {
+        this.headSender({
             statusCode: this.statusCode,
             headers: this.headers
         })
