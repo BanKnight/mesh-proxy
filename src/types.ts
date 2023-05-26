@@ -169,20 +169,11 @@ export type HttpServer = (http.Server | https.Server) & {
     sites: Map<string, SiteInfo>;
 }
 
-// export class Tunnel extends Duplex {
+export interface Route {
+    dest: string;     //目的路由
+    distance: number;   //距离
+    next: string;       //下一跳
+}
 
-//     id: string
-
-//     constructor(id?: string, opts?: DuplexOptions) {
-//         super(opts)
-//         this.id = id || randomUUID();
-//     }
-
-//     _read(size: number): void { }
-
-//     _write(chunk: any, encoding: BufferEncoding, callback: (error?: Error) => void): void {
-
-//     }
-// }
 
 

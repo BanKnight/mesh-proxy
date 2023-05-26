@@ -132,6 +132,10 @@ export default class Rsync extends Component {
         const tunnel = this.createConnection(this.options.pass, { cmd: "delete", files: deletes }, () => {
             tunnel.destroy()
         })
+
+        tunnel.once("error", () => {
+            tunnel.destroy()
+        })
     }
 
     sync_adds(array: string[]) {
