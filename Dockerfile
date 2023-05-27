@@ -21,4 +21,4 @@ WORKDIR /app
 
 COPY --from=builder /app/dist ./
 
-CMD ["node","."]
+CMD node . -c $1

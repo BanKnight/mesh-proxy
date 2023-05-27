@@ -5,9 +5,22 @@ services:
       dockerfile: ./Dockerfile
       context: .
     image: mesh-proxy:latest
-    container_name: mesh-proxy
+    container_name: mesh-proxy-server
     restart: always # 重启策略: 容器退出时总是重启容器
     environment:
       - TZ=Asia/Shanghai
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=4096
+    command: node . -c server.yml
+  client:
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    image: mesh-proxy:latest
+    container_name: mesh-proxy-client
+    restart: always # 重启策略: 容器退出时总是重启容器
+    environment:
+      - TZ=Asia/Shanghai
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=4096
+    command: node . -c client.yml
