@@ -455,7 +455,7 @@ export class Application {
 
             const on_disconnect = () => {
 
-                node.socket.off("close", on_disconnect)
+                node.socket?.off("close", on_disconnect)
 
                 const exists = delete that.components[component.name]
 
@@ -465,7 +465,7 @@ export class Application {
                 }
             }
 
-            node.socket.on("close", on_disconnect)
+            node.socket.once("close", on_disconnect)
         })
 
         node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
