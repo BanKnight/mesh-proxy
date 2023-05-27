@@ -70,13 +70,13 @@ export class Application {
             cert = this.options.ssl.cert
         }
 
-        if (key?.startsWith("file://")) {
-            const file = fileURLToPath(key);
+        if (key?.startsWith(".") || key?.startsWith("/")) {
+            const file = resolve(key)
             key = readFileSync(file, "utf-8")
         }
 
-        if (cert?.startsWith("file://")) {
-            const file = fileURLToPath(cert);
+        if (cert?.startsWith(".") || cert?.startsWith("/")) {
+            const file = resolve(cert)
             cert = readFileSync(file, "utf-8")
         }
 
@@ -84,7 +84,7 @@ export class Application {
 
         const site = this.create_site({
             port: this.options.listen.port,
-            host: this.options.listen.host || "",
+            host: this.options.listen.hostname || "",
             ssl: this.options.ssl ? { ...this.options.ssl, key, cert } : null
         })
 
@@ -152,7 +152,21 @@ export class Application {
 
             node.url = new URL(one.url)
             node.name = one.name
+            node.options = one
 
+            if (one.ssl) {
+                let { key, cert } = one.ssl
+
+                if (key?.startsWith(".") || key?.startsWith("/")) {
+                    const file = resolve(key)
+                    one.ssl.key = readFileSync(file, "utf-8")
+                }
+
+                if (cert?.startsWith(".") || cert?.startsWith("/")) {
+                    const file = resolve(cert)
+                    one.ssl.cert = readFileSync(file, "utf-8")
+                }
+            }
             all.push(new Promise((resolve, reject) => {
                 this.connect_node(node)
                 node.once("connect", resolve)
@@ -164,7 +178,10 @@ export class Application {
 
     connect_node(node: Node, retry = 0) {
 
-        const socket = node.socket = (new WebSocket(node.url)) as WSocket
+        const socket = node.socket = (new WebSocket(node.url, {
+            ...node.options.ssl,
+            rejectUnauthorized: false,
+        })) as WSocket
 
         let connecting = true
 
@@ -854,13 +871,13 @@ export class Application {
             server = https.createServer({
                 ...options,
                 SNICallback: (servername, cb) => {
-                    const site = server.sites.get(servername)
+                    const site = get_site(servername)
                     if (site) {
                         cb(null, site.context);
                     } else {
                         cb(new Error('No such server'));
                     }
-                }
+                },
             }) as HttpServer
 
             server.port = options.port || 443
@@ -874,8 +891,8 @@ export class Application {
 
         server.sites = new Map()
 
-        function get_site(req: http.IncomingMessage) {
-            let site = server.sites.get(req.headers.host)
+        function get_site(host: string) {
+            let site = server.sites.get(host)
             if (site == null) {
                 site = server.sites.get("")
             }
@@ -948,7 +965,8 @@ export class Application {
         }
 
         server.on("request", (req, res) => {
-            let site = get_site(req)
+            const array = req.headers.host.split(":")
+            let site = get_site(array[0])
             if (site == null) {
                 res.writeHead(404);
                 res.end();
@@ -989,9 +1007,20 @@ export class Application {
             location.callback(req, res)
         })
 
-        server.on("upgrade", (req, socket, head) => {
+        // server.on("secureConnection", (tlsSocket) => {
+        //     const site = get_site(tlsSocket.servername)
+        //     if (site) {
+        //         tlsSocket.context = site.context
+        //     }
+        // })
 
-            let site = get_site(req)
+        server.on("tlsClientError", (err: Error, tlsSocket: tls.TLSSocket) => {
+            console.error(err)
+        })
+
+        server.on("upgrade", (req, socket, head) => {
+            const array = req.headers.host.split(":")
+            let site = get_site(array[0])
             if (site == null) {
                 socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
                 socket.destroy();

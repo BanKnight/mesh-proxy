@@ -20,6 +20,7 @@ export interface ServerOption {
     name: string
     url: string
     token: string
+    ssl: any
 }
 
 export interface UserOption {
@@ -47,6 +48,7 @@ export class Node extends EventEmitter {
 
     name: string
     url?: URL
+    options: any
     socket: WSocket
     components: Record<string, Component> = {};  //[name] = Component
 
