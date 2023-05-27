@@ -70,15 +70,17 @@ export default class Free extends Component {
         socket.on('end', () => {
             tunnel.end()
             // socket.destroy()
-
-            console.log(this.name, "tcp end", context.dest.host, context.dest.port)
+            if (this.options.debug) {
+                console.log(this.name, "tcp end", context.dest.host, context.dest.port)
+            }
         });
 
         socket.on('close', (has_error) => {
             tunnel.end()
             socket.destroy()
-
-            console.log(this.name, "tcp close", has_error, context.dest.host, context.dest.port)
+            if (this.options.debug) {
+                console.log(this.name, "tcp close", has_error, context.dest.host, context.dest.port)
+            }
         });
 
         socket.on("error", (error: Error) => {
@@ -93,14 +95,15 @@ export default class Free extends Component {
             socket.destroy()
         })
 
-        tunnel.on("data", (data: Buffer) => {
-            console.log(this.name, "tcp ==>", context.dest.host, context.dest.port, data.length)
-            // console.log(data.toString("utf-8"))
-        })
-
-        socket.on("data", (data) => {
-            console.log(this.name, "tcp <==", context.dest.host, context.dest.port, data.length)
-        })
+        if (this.options.debug) {
+            tunnel.on("data", (data: Buffer) => {
+                console.log(this.name, "tcp ==>", context.dest.host, context.dest.port, data.length)
+                // console.log(data.toString("utf-8"))
+            })
+            socket.on("data", (data) => {
+                console.log(this.name, "tcp <==", context.dest.host, context.dest.port, data.length)
+            })
+        }
     }
 
     handle_udp(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
