@@ -107,4 +107,4 @@ dist
 .env.development
 
 experiment
-local
+config
