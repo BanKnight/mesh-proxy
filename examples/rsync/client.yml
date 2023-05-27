@@ -9,7 +9,7 @@ components:
     type: rsync
     root: ./experiment/rsync/from
     pass: server/to
-    check_delete: true
+    delete: true
     interval: 10000
 
 

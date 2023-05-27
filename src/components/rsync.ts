@@ -35,7 +35,7 @@ export default class Rsync extends Component {
             if (this.options.pass) {
                 this.check()
             }
-        })
+        }, this.options.interval || 10000)
 
         if (this.options.pass == null) {
             return
@@ -52,7 +52,10 @@ export default class Rsync extends Component {
             tunnel.destroy()
         })
 
-        tunnel.on("error", () => {
+        tunnel.on("error", (e) => {
+            if (tunnel.readyState == "opening") {   //connect failed
+                console.error(e.message)
+            }
             tunnel.destroy()
         })
     }
@@ -105,7 +108,7 @@ export default class Rsync extends Component {
             }
         }
 
-        if (this.options.check_delete) {
+        if (this.options.delete) {
             for (let relative in files) {
                 let local = this.files[relative]
                 if (local == null) {
@@ -236,9 +239,13 @@ export default class Rsync extends Component {
             tunnel.end()
             console.log("sync finished", whole)
 
-            fs.utimesSync(whole, context.stats.atime, context.stats.mtime)
-
             this.files[context.relative] = fs.statSync(whole)
+
+            fs.utimesSync(whole, context.stats.atime, context.stats.mtime)
+        })
+        stream.on("error", (e) => {
+            tunnel.destroy(e)
+            stream.close()
         })
         console.log("sync", whole)
     }

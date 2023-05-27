@@ -632,6 +632,7 @@ export class Application {
         const target = this.nodes[next_node]
 
         if (target == null) {
+            tunnel._read = () => { }
             setImmediate(() => {
                 tunnel.destroy(new Error(`tunnel to ${address} failed,no such node: ${dest_node}`))
             })
@@ -772,8 +773,7 @@ export class Application {
             tunnel.emit("close")
         }
 
-        revert.on("error", console.error)
-
+        revert.on("error", () => { })       //no op
         revert.connecting = false
         revert.readyState = "open"
         revert.cork()
