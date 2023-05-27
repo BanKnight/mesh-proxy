@@ -11,6 +11,8 @@ services:
       - TZ=Asia/Shanghai
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=4096
+    ports:
+      - "8086:8086"
     volumes:
       - $PWD/config:/app/config
     command: node . -c ./config/server.yml

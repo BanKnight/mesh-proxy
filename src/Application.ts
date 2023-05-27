@@ -314,21 +314,19 @@ export class Application {
 
         this.nodes[node.name] = node
 
-        for (const component of this.options.components) {
-            const names = component.name.split("/")
-            if (names[0] != node.name) {
-                continue
-            }
-            node.socket.write("regist", component)
-        }
-
-        //
         this.routes[node.name] = {
             dest: node.name,
             distance: 1,
             next: node.name,
         }
-
+        for (const component of this.options.components) {
+            const names = component.name.split("/")
+            if (names[0] != node.name) {        //这里和route不同，仅发送和自己相邻的regist指令
+                continue
+            }
+            node.socket.write("regist", component)
+        }
+        //
         this.send_my_routes(node)
     }
 
