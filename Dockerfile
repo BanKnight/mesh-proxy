@@ -10,6 +10,7 @@ RUN npm install
 COPY /src ./src
 
 RUN npm run build
+RUN rm -rf ./src
 
 FROM node:slim
 
@@ -20,6 +21,6 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
 
 WORKDIR /app
 
-COPY --from=builder /app/dist ./
+COPY --from=builder /app/ . 
 
 CMD node . -c $1
