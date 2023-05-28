@@ -37,9 +37,7 @@ export default class Free extends Component {
 
     handle_tcp(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
-        if (this.options.debug) {
-            console.log(this.name, "tcp try connect", context.dest.host, context.dest.port)
-        }
+        console.log(this.name, "tcp try connect", context.dest.host, context.dest.port)
 
         const socket = createConnection({
             ...context.dest,
@@ -84,11 +82,8 @@ export default class Free extends Component {
         });
 
         socket.on("error", (error: Error) => {
-
             if (socket.readyState == "opening") {
-                if (this.options.debug) {
-                    console.log(this.name, "tcp connect failed", context.dest.host, context.dest.port)
-                }
+                console.log(this.name, "tcp connect failed", context.dest.host, context.dest.port)
             }
 
             tunnel.destroy()
@@ -110,7 +105,7 @@ export default class Free extends Component {
 
         const should_connect = context.dest?.port != null && context.dest?.host != null
 
-        if (this.options.debug && context.dest?.port) {
+        if (context.dest?.port) {
             console.log(this.name, "udp try connect", context.dest.host, context.dest.port)
         }
 
