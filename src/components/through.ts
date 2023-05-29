@@ -18,10 +18,10 @@ export default class Through extends Component {
 
     connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
         if (this.options.pass == null) {
-            callback(new Error(`"component[${this.name}] pass required`))
-            tunnel.destroy()
+            tunnel.destroy(new Error(`"component[${this.name}] pass required`))
             return
         }
+
         const next = this.createConnection(this.options.pass, context, callback)
 
         tunnel.pipe(next).pipe(tunnel)

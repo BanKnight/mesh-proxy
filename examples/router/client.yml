@@ -1,0 +1,37 @@
+name: client
+
+servers:
+  - name: server
+    url: ws://client:token@localhost:8086/test
+    
+components:
+  - name: client/tcp
+    type: tcp
+    listen: 1080
+    pass: client/socks5
+
+    # debug: true
+  - name: client/socks5
+    type: socks5
+    pass: server/free
+    users: []
+    # debug: true
+
+  - name: client/route
+    type: route
+    passes:
+      - type: ip
+        cond: 192.168.100.0/255.255.255.0
+        pass: client/hole
+      - type: domain
+        cond: localhost
+        pass: client/back
+      - type: reg
+        cond: *.*.*.mr-tutu.com
+      - type: eval
+        cond: source.host == 
+    default: server/free
+
+  - name: server/free
+    type: free
+    debug: true
