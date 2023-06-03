@@ -7,7 +7,9 @@ servers:
 components:
   - name: client/tcp
     type: tcp
-    listen: 1080
+    listen: 
+      host: 0.0.0.0
+      port: 1080
     pass: client/socks5
 
     # debug: true
@@ -20,14 +22,17 @@ components:
   - name: client/router
     type: router
     passes:
-      - type: ip
-        cond: 192.168.31.0/255.255.255.0
+      - type: address
+        cond: 192.168.31.0
         pass: server/free
-      - type: strict
-        cond: 1.1.1.1
+      - type: range
+        cond: 192.168.31.0-192.168.31.255
+        pass: server/free
+      - type: subnet
+        cond: 192.168.31.1/24
         pass: client/deny
       - type: reg
-        cond: "^.*.baidu.com$"
+        cond: ^.*.baidu.com$,^.*.baidu.com$
         pass: server/baidu
       - type: eval
         cond: source.host == dest.host

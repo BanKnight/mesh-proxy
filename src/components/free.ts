@@ -5,6 +5,11 @@ import { read_address, write_address } from '../utils.js';
 
 let temp = Buffer.alloc(1024)
 export default class Free extends Component {
+
+    alive_tcp = 0
+    alive_udp = 0; 					//number of alive udp connections
+    timer: NodeJS.Timer;			//timer for keepalive messages
+
     constructor(options: ComponentOption) {
         super(options)
 
@@ -13,9 +18,21 @@ export default class Free extends Component {
         this.on("connection", this.connection.bind(this))
     }
 
-    ready() { }
+    ready() {
 
-    close(error?: Error) { }
+        if (this.options.debug) {
+            this.timer = setInterval(() => {
+                console.log("alive_tcp:", this.alive_tcp)  //debugging purpose only
+            }, 3000)
+        }
+
+    }
+
+    close(error?: Error) {
+        if (this.timer) {
+            clearInterval(this.timer); 					//cancel the timer if it's set
+        }
+    }
 
     connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
@@ -45,6 +62,9 @@ export default class Free extends Component {
             noDelay: true,
             timeout: 0,
         } as any, () => {
+
+            this.alive_tcp++
+
             if (this.options.debug) {
                 console.log(this.name, "tcp connected", context.dest.host, context.dest.port)
             }
@@ -76,6 +96,9 @@ export default class Free extends Component {
         socket.on('close', (has_error) => {
             tunnel.end()
             socket.destroy()
+
+            this.alive_tcp--
+
             if (this.options.debug) {
                 console.log(this.name, "tcp close", has_error, context.dest.host, context.dest.port)
             }
