@@ -115,9 +115,9 @@ export default class Vless extends Component {
             return
         }
 
-        const source = context.source
+        const source = context.src
 
-        if (this.auth(tunnel, context.source, userid) == false) {
+        if (this.auth(tunnel, context.src, userid) == false) {
             const e = new Error(`component[${this.name}]:auth failed from ${source.socket?.remoteAddress}:${source.socket?.remotePort},userid:${userid}`)
             console.error(e)
             tunnel.destroy(e)
@@ -329,7 +329,7 @@ export default class Vless extends Component {
 
         // console.log("😀 recv mux new", tunnel.id, session.id, session.host, session.protocol)
 
-        session.tunnel = this.createConnection(this.options.pass, { source: context.source, dest: session })
+        session.tunnel = this.createConnection(this.options.pass, { src: context.src, dest: session })
 
         if (extra && extra.length > 0) {
             session.tunnel.write(extra)

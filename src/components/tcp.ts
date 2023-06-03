@@ -40,13 +40,17 @@ export default class Tcp extends Component {
             // socket.id = `${this.name}/${++this.id}`
 
             const context: ConnectionContext = {
-                source: {
+                src: {
                     socket: {
                         remoteAddress: socket.remoteAddress,
                         remotePort: socket.remotePort,
                         family: socket.remoteFamily,
                         protocol: "tcp",
-                    }
+                    },
+                    host: socket.remoteAddress,
+                    port: socket.remotePort,
+                    protocol: "tcp",
+                    family: socket.remoteFamily as "IPv4" | "IPv6",
                 }
             }
             const tunnel = this.createConnection(this.options.pass, context)

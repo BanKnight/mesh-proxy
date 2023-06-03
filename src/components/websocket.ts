@@ -69,7 +69,7 @@ export default class Tcp extends Component {
             socket.id = `${this.name}/${++this.id}`
 
             const context: ConnectionContext = {
-                source: {
+                src: {
                     socket: {
                         remoteAddress: req.socket.remoteAddress,
                         remotePort: req.socket.remotePort,

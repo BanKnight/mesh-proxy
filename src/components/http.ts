@@ -67,7 +67,7 @@ export default class Http extends Component {
 
         // const outoptions = this.req_options(req)
         const context: ConnectionContext = {
-            source: {
+            src: {
                 method: req.method,
                 headers: req.headers,
                 rawHeaders: req.rawHeaders,
@@ -107,7 +107,7 @@ export default class Http extends Component {
     handle_upgrade(location: Location, req: http.IncomingMessage, socket: Duplex, head: Buffer) {
         this.wsserver.handleUpgrade(req, socket, head, (wsocket: WebSocket) => {
             const context: ConnectionContext = {
-                source: {
+                src: {
                     method: req.method,
                     headers: req.headers,
                     rawHeaders: req.rawHeaders,
@@ -123,6 +123,9 @@ export default class Http extends Component {
                         localFamily: req.socket.localFamily,
                         family: req.socket.remoteFamily,
                     },
+                    host: req.socket.remoteAddress,
+                    port: req.socket.remotePort,
+                    family: req.socket.remoteFamily as "IPv4" | "IPv6",
                 }
             }
             const stream = createWebSocketStream(wsocket, location as unknown)
@@ -160,7 +163,7 @@ export default class Http extends Component {
     }
     pass_request(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
-        const outoptions = this.req_options(context.source)
+        const outoptions = this.req_options(context.src)
         const target = this.options.address
         const proxyReq = (target.protocol === 'https:' ? https : http).request(outoptions, (proxyRes) => {
             callback({        //这里可以修改头部

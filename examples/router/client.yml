@@ -13,25 +13,36 @@ components:
     # debug: true
   - name: client/socks5
     type: socks5
-    pass: server/free
+    pass: client/router
     users: []
     # debug: true
 
-  - name: client/route
-    type: route
+  - name: client/router
+    type: router
     passes:
       - type: ip
-        cond: 192.168.100.0/255.255.255.0
-        pass: client/hole
-      - type: domain
-        cond: localhost
-        pass: client/back
+        cond: 192.168.31.0/255.255.255.0
+        pass: server/free
+      - type: strict
+        cond: 1.1.1.1
+        pass: client/deny
       - type: reg
-        cond: *.*.*.mr-tutu.com
+        cond: "^.*.baidu.com$"
+        pass: server/baidu
       - type: eval
-        cond: source.host == 
+        cond: source.host == dest.host
+        pass: client/deny
     default: server/free
 
   - name: server/free
     type: free
     debug: true
+
+  - name: server/baidu
+    type: hole
+    debug: true
+
+  - name: client/deny
+    type: hole
+    debug: true
+    timeout: 1000

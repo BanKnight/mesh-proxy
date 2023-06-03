@@ -1,6 +1,8 @@
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
-import fs from "fs"
-import path from "path"
+
+
+const isIP = /^([\d.-]+)\.([a-fA-F0-9]{1,4}\.)+[a-fA-F0-9]{1,4}$/;
+
 export default class Router extends Component {
 
     constructor(options: ComponentOption) {
@@ -22,12 +24,15 @@ export default class Router extends Component {
                 one.reg = new RegExp(one.cond)
             }
             else if (one.type == "ip") {
-                const [ip, mask] = one.cond.split("/")
-                one.ip = ip.split(".").map((item: string) => { parseInt(item) })
-                one.mask = mask.split(".").map((item: string) => { parseInt(item) })
+                const [ip, mask] = one.cond.split("/") as [string, string]
+                one.ip = ip.split(".").map((item: string) => { return parseInt(item) })
+                one.mask = mask.split(".").map((item: string) => { return parseInt(item) })
             }
             else if (one.type == "eval") {
-                one.check = new Function("source", "dest", one.cond)
+                one.eval = new Function("source", "dest", one.cond)
+            }
+            else if (one.type == "strict") {
+                one.strict = one.cond.split(",")
             }
         }
 
@@ -42,7 +47,7 @@ export default class Router extends Component {
             const one = this.options.passes[i]
             switch (one.type) {
                 case "ip": next_pass = this.check_ip(context, one); break;
-                case "domain": next_pass = this.check_domain(context, one); break;
+                case "strict": next_pass = this.check_strict(context, one); break;
                 case "reg": next_pass = this.check_reg(context, one); break;
                 case "eval": next_pass = this.check_eval(context, one); break;
             }
@@ -55,7 +60,7 @@ export default class Router extends Component {
             return
         }
 
-        const next = this.createConnection(this.options.pass, context, callback)
+        const next = this.createConnection(next_pass, context, callback)
 
         tunnel.pipe(next).pipe(tunnel)
 
@@ -68,15 +73,19 @@ export default class Router extends Component {
             tunnel.destroy()
             next.destroy()
         })
+
+        tunnel.on("close", () => {
+            console.log("tunnel is closed")
+            next.emit("close") 		//emitted when the connection is closed by the server.  (probably)
+        })
     }
 
-    check_ip(context: ConnectionContext, option: { ip: [number, number, number, number], mask: [number, number, number, number], pass: string }) {
-
-        if (context.dest.family == null || context.dest.family == "IPv6") {
+    check_ip(context: ConnectionContext, option: { ip: [number, number, number, number], mask: [number, number, number, number], pass: string, tag?: string }) {
+        if (isIP.test(context.dest.host) == false) {
             return
         }
 
-        const array = (context.dest.host.split(".").map((item: string) => { parseInt(item) })) as unknown as [number, number, number, number]
+        const array = (context.dest.host.split(".").map((item: string) => { return parseInt(item) })) as unknown as [number, number, number, number]
         if (array.length != option.ip.length) {
             return
         }
@@ -94,14 +103,22 @@ export default class Router extends Component {
             }
         }
 
+        if (option.tag) {
+            context.dest.tag = option.tag
+        }
         return option.pass
     }
 
-    check_domain(context: ConnectionContext, option: { cond: string, pass: string }) {
+    check_strict(context: ConnectionContext, option: { strict: string[], pass: string, tag?: string }) {
 
-        if (context.dest.host == option.cond) {
-            return option.pass
+        if (!option.strict.includes(context.dest.host)) {
+            return
         }
+
+        if (option.tag) {
+            context.dest.tag = option.tag
+        }
+        return option.pass
     }
 
     check_reg(context: ConnectionContext, option: { reg: RegExp, pass: string }) {
@@ -110,9 +127,14 @@ export default class Router extends Component {
         }
     }
 
-    check_eval(context: ConnectionContext, option: { check: Function, pass: string }) {
-        if (option.check(context.source, context.dest)) {
-            return option.pass
+    check_eval(context: ConnectionContext, option: { eval: Function, pass: string, tag?: string }) {
+        if (!option.eval(context.src, context.dest)) {
+            return
         }
+
+        if (option.tag) {
+            context.dest.tag = option.tag
+        }
+        return option.pass
     }
 }

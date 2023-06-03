@@ -1,3 +1,4 @@
+import { clearInterval } from "timers";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Hole extends Component {
@@ -9,12 +10,8 @@ export default class Hole extends Component {
         this.on("connection", this.connection.bind(this))
     }
 
-    ready() {
-        if (this.options.pass == null) {
-            console.error(Error(`"component[${this.name}] pass required`))
-            return
-        }
-    }
+    ready() { }
+    close() { }
 
     connection(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
 
@@ -27,7 +24,14 @@ export default class Hole extends Component {
             return
         }
 
-        tunnel.on("data", (data) => { })
+        console.log(this.name, "connect", context.dest.host, context.dest.port)
+
+        let last = Date.now()
+        let timer = null
+
+        tunnel.on("data", (data) => {
+            last = Date.now()
+        })
         tunnel.on("error", () => {
             tunnel.end()
         })
@@ -36,10 +40,22 @@ export default class Hole extends Component {
         })
         tunnel.on("close", () => {
             tunnel.end()
-        })
-    }
 
-    close() {
+            if (timer) {
+                clearInterval(timer)
+            }
+        })
+
+        if (!this.options.timeout) {
+            return
+        }
+
+        timer = setInterval(() => {
+            if (Date.now() - last > this.options.timeout) {
+                tunnel.destroy()
+                clearInterval(timer)
+            }
+        }, this.options.timeout * 1.02)
 
     }
 }

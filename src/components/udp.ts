@@ -57,7 +57,7 @@ export default class udp extends Component {
             }
 
             const context: ConnectionContext = {
-                source: {
+                src: {
                     socket: {
                         protocol: "udp",
                         remoteAddress: remote_info.address,

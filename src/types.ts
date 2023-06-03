@@ -71,7 +71,7 @@ export type SiteOptions = http.ServerOptions & {
 export type ConnectListener = (...args: any[]) => void
 
 export interface ConnectionContext extends Record<string, any> {
-    source?: {
+    src?: {
         socket?: {
             remoteAddress: string
             remotePort: number
@@ -79,6 +79,10 @@ export interface ConnectionContext extends Record<string, any> {
             protocol?: "tcp" | "udp" | "http";
             [key: string]: any
         },
+        host?: string;
+        port?: number;
+        protocol?: "tcp" | "udp" | "http";
+        family?: "IPv4" | "IPv6";
         [key: string]: any
     };
     dest?: {
