@@ -26,6 +26,14 @@ export default class Free extends Component {
             }, 3000)
         }
 
+        // heapdump.writeSnapshot('./ready.dump', (err) => {
+        //     if (err) {
+        //         console.log('Failed to dump heap: ' + err);
+        //     } else {
+        //         console.log('Successfully dumped heap!');
+        //     }
+        // });
+
     }
 
     close(error?: Error) {

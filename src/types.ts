@@ -142,8 +142,8 @@ export class Tunnel extends Duplex {
     constructor(id?: string, options?: DuplexOptions) {
         super({
             ...options,
-            autoDestroy: false,
-            emitClose: false,
+            autoDestroy: true,
+            emitClose: true,
             objectMode: false,
             writableObjectMode: false
         })
