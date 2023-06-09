@@ -50,7 +50,7 @@ export class Node extends EventEmitter {
     url?: URL
     options: any
     socket: WSocket
-    components: Record<string, Component> = {};  //[name] = Component
+    tunnels: Record<string, Tunnel> = {}  //需要本node中转的tunnel
 
     send(event: string, ...args: any[]) {
         if (this.socket) {
@@ -95,8 +95,9 @@ export interface ConnectionContext extends Record<string, any> {
 }
 export class Component extends EventEmitter {
 
-    node: Node
+    node: string
     name: string;
+    tunnels: Record<string, Tunnel> = {}
     options: ComponentOption
     create_site: (options: SiteOptions) => SiteInfo;
     createConnection: (address: string, context: ConnectionContext, callback?: ConnectListener) => Tunnel;
@@ -115,11 +116,13 @@ export class Component extends EventEmitter {
 
 export type TunnelReadyState = 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed';
 
+export type ComponentAddress = [string, string]
+
 let count = 0
 export class Tunnel extends Duplex {
     id: string;
     order = ++count
-    destination: string;
+    remote: ComponentAddress;
     /**
      * If `true`,`socket.connect(options[, connectListener])` was
      * called and has not yet finished. It will stay `true` until the socket becomes

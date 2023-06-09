@@ -8,9 +8,9 @@ import url, { fileURLToPath, pathToFileURL, UrlWithStringQuery } from "url"
 import { join, resolve, basename, dirname } from "path";
 import { parse } from "yaml";
 import { readFileSync, readdirSync } from "fs";
-import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener, Location, Route } from "./types.js";
+import { Config, Component, Node, ComponentOption, Tunnel, HttpServer, SiteInfo, WSocket, SiteOptions, ConnectListener, Location, Route, ComponentAddress } from "./types.js";
 import { basic_auth } from "./utils.js"
-import { Duplex } from "stream"
+import { Duplex, finished } from "stream"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -21,9 +21,9 @@ export class Application {
 
     options: Config
     httpservers = new Map<number, HttpServer>()
-    nodes: Record<string, Node> = {}           //[name] = node,有一个特殊的node表明是自己 [$self] = node
-    tunnels: Record<string, Tunnel> = {}       //用于给远程tunnel发过来的
+    nodes: Record<string, Node> = {}                               //[name] = node,连上来的node
     templates: Record<string, Constructable<Component>> = {}       //
+    components: Record<string, Component> = {};                    //[name] = Component
     /**
      * 路由表：[dest_node] = next_node，使用RIP协议维护
      * 参考：https://blog.csdn.net/TheCarol/article/details/112106308
@@ -250,29 +250,18 @@ export class Application {
 
         for (const options of this.options.components) {
 
-            const names = options.name.split("/")
-            if (names[0] != this.options.name) {
+            const [node_name, component_name] = options.name.split("/")
+            if (node_name != this.name) {
                 continue
             }
 
-            const node = this.nodes[names[0]]
+            const component = this.components[component_name] = this.create_component(options)
 
-            const component = this.create_component(options)
-
-            component.node = node
-            component.name = names[1]
-            component.options = options
-            component.create_site = this.create_site.bind(this)
-            component.createConnection = this.connect_component.bind(this, component)
-
-            node.components[component.name] = component
-
+            component.node = node_name
+            component.name = component_name
+            component.emit("ready")
 
             console.log(`component[${component.name}] created`)
-
-            component.setMaxListeners(Infinity)
-            component.emit("ready")
-            component.on("error", () => { })
         }
     }
 
@@ -288,11 +277,6 @@ export class Application {
 
             this.templates[name] = component_class
         }
-
-        const node = this.nodes[this.name] = new Node()
-        node.name = this.name
-        node.setMaxListeners(Infinity)
-
         this.routes[this.name] = {
             dest: this.name,
             distance: 0,
@@ -326,7 +310,6 @@ export class Application {
             }
             node.socket.write("regist", component)
         }
-        //
         this.send_my_routes(node)
     }
 
@@ -351,6 +334,14 @@ export class Application {
             }
             this.send_my_routes(curr)
         }
+
+        const error = new Error(`tunnel destroy when node[${node.name}] disconnected`)
+        for (let id in node.tunnels) {
+            const tunnel = node.tunnels[id]
+            tunnel.destroy(error)
+        }
+
+        node.tunnels = {}
 
         this.update_sites()
     }
@@ -435,113 +426,74 @@ export class Application {
 
         node.socket.on("regist", (options: ComponentOption) => {
 
-            const names = options.name.split("/")
-            const that = this.nodes[names[0]]
+            const [node_name, component_name] = options.name.split("/")
+            const route = this.find_route_next(node_name)
 
-            const component = this.create_component(options)
+            if (route == null) {
+                console.error("no route to regist:", options.name)
+                return
+            }
 
-            component.name = names[1]
-            component.node = that
-            component.options = options
-            component.create_site = this.create_site.bind(this)
-            component.createConnection = this.connect_component.bind(this, component)
-            component.setMaxListeners(Infinity)
+            if (route != this.name) {
+                console.error("unsupported remote regist", options.name)
+                return
+            }
 
-            that.components[component.name] = component
+            const component = this.components[component_name] = this.create_component(options)
 
-            console.log(`component[${options.name}] created from: ${node.name}`)
-
-            component.emit("ready")
+            component.name = component_name
+            component.node = node_name
+            component.once("close", () => {
+                node.socket?.off("close", on_disconnect)
+                delete this.components[component.name]
+            })
 
             const on_disconnect = () => {
-
-                node.socket?.off("close", on_disconnect)
-
-                const exists = delete that.components[component.name]
-
-                if (exists) {
-                    console.log(`component[${options.name}] destroy when node[${node.name}] close`)
-                    component.destroy()
-                }
+                component.destroy()
+                console.log(`component[${component.name}] destroy when node[${node.name}] close`)
             }
 
             node.socket.once("close", on_disconnect)
+
+            component.emit("ready")
+            console.log(`component[${options.name}] created from: ${node.name}`)
         })
 
-        node.socket.on("tunnel::connect", async (id: string, destination: string, ...args: any[]) => {
+        node.socket.on("tunnel::connect", async (id: string, address: ComponentAddress, ...args: any[]) => {
 
-            const names = destination.split("/")
-            const that = this.nodes[names[0]]
-            const component = that.components[names[1]]
+            const [node_name, component_name] = address
 
-            if (component == null) {
-                const error = new Error(`no such component: ${destination}`)
+            if (node_name == this.name)      //local
+            {
+                return this.remote_to_local(node, id, address, ...args)
+            }
+
+            const next_node = this.find_route_next(node_name)
+
+            if (next_node == null) {
+                const error = new Error(`no such node: ${address}`)
                 node.socket.write("tunnel::error", id, { message: error.message, stack: error.stack })
                 return
             }
 
-            const tunnel = this.tunnels[id] = new Tunnel(id)
+            const that = this.nodes[next_node]
 
-            // console.log(this.name, "tunnel::connect,from:", node.name, id, destination)
-
-            tunnel.setMaxListeners(Infinity)
-
-            tunnel.destination = `${node.name}/?`
-            tunnel.readyState = "open"
-
-            tunnel._write = (chunk, encoding, callback) => {
-                node.socket?.write("tunnel::data", id, chunk)
-                callback()
+            if (that == null) {
+                const error = new Error(`no such component: ${address}`)
+                node.socket.write("tunnel::error", id, { message: error.message, stack: error.stack })
+                return
             }
 
-            tunnel._read = () => { };
-            tunnel._final = (callback: (error?: Error | null) => void) => {
-                node.socket?.write("tunnel::final", id)
-                tunnel.readyState = "readOnly"
-                callback()
-                if (tunnel.readableEnded) {
-                    tunnel.destroy()
-                }
-            }
-
-            tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-                node.socket?.write("tunnel::close", id)
-                delete this.tunnels[id]
-                tunnel.readyState = "closed"
-                callback(error)
-            }
-
-            tunnel.on("error", () => {
-                tunnel.end()
-            })
-
-            tunnel.cork()
-            component.emit("connection", tunnel, ...args, (...args: any[]) => {
-                tunnel.uncork()
-                node.socket?.write("tunnel::connection", id, ...args)
-            })
-
-            let destroy = (reason: string) => {
-                const existed = this.tunnels[id]
-                if (!existed) {
-                    return
-                }
-                existed.destroy(new Error(reason))
-            }
-
-            //对端断开了，那么tunnel也要销毁
-            node.socket.once("close", destroy.bind(null, "node close"))
-            component.once("close", destroy.bind(null, "component close"))
+            return this.remote_relay_next(node, that, id, address, ...args)
         })
 
         node.socket.on("tunnel::connection", (id: string, ...args: any[]) => {
 
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 node.socket.write("tunnel::close", id)
                 return
             }
-
 
             tunnel.connecting = false
             tunnel.readyState = "open"
@@ -550,7 +502,7 @@ export class Application {
         })
 
         node.socket.on("tunnel::message", (id: string, event: string, ...args: any[]) => {
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 return
             }
@@ -558,7 +510,7 @@ export class Application {
         })
 
         node.socket.on("tunnel::data", (id: string, chunk: any) => {
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 return
             }
@@ -567,13 +519,13 @@ export class Application {
 
         node.socket.on("tunnel::final", (id: string) => {
 
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 return
             }
 
             //对端停止发送数据过来，那么这条通路就可以关了
-            delete this.tunnels[id]
+            delete node.tunnels[id]
 
             // console.log(this.name, "tunnel::final from", node.name, tunnel.id)
 
@@ -583,7 +535,7 @@ export class Application {
 
         node.socket.on("tunnel::error", (id: string, error: any) => {
 
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 return
             }
@@ -598,14 +550,14 @@ export class Application {
 
         node.socket.on("tunnel::close", (id: string, error?: any) => {
 
-            const tunnel = this.tunnels[id]
+            const tunnel = node.tunnels[id]
             if (tunnel == null) {
                 return
             }
 
             // console.log(this.name, "tunnel::destroy,from:", node.name, id)
 
-            delete this.tunnels[id]
+            delete node.tunnels[id]
 
             if (error) {
 
@@ -618,7 +570,118 @@ export class Application {
             }
             tunnel.emit("close")
         })
+    }
 
+    remote_to_local(node: Node, id: string, address: ComponentAddress, ...args: any[]) {
+
+        const component = this.components[address[1]]
+
+        if (component == null) {
+            const error = new Error(`no such component: ${address}`)
+            node.socket.write("tunnel::error", id, { message: error.message, stack: error.stack })
+            return
+        }
+
+        const tunnel = new Tunnel(id)
+
+        tunnel.setMaxListeners(Infinity)
+        tunnel.remote = [node.name, "?"]
+        tunnel.readyState = "open"
+
+        node.tunnels[id] = tunnel       //注意：这里是node的tunnels
+        component.tunnels[id] = tunnel
+
+        finished(tunnel, () => {
+            delete node.tunnels[id]
+            delete component.tunnels[id]
+        })
+
+        tunnel._write = (chunk, encoding, callback) => {
+            node.socket?.write("tunnel::data", id, chunk)
+            callback()
+        }
+
+        tunnel._read = () => { };
+        tunnel._final = (callback: (error?: Error | null) => void) => {
+            node.socket?.write("tunnel::final", id)
+            callback()
+            if (tunnel.readableEnded) {
+                tunnel.destroy()
+            }
+        }
+
+        tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            node.socket?.write("tunnel::close", id)
+            callback(error)
+        }
+
+        tunnel.cork()
+        component.emit("connection", tunnel, ...args, (...args: any[]) => {
+            tunnel.uncork()
+            node.socket?.write("tunnel::connection", id, ...args)
+        })
+    }
+
+    remote_relay_next(node: Node, that: Node, id: string, address: ComponentAddress, ...args: any[]) {
+
+        const tunnel = new Tunnel(id)       //send node
+        const revert = new Tunnel(id)        //send that
+
+        tunnel.remote = address
+        tunnel.readyState = "open"
+        tunnel.setMaxListeners(Infinity)
+
+        revert.remote = [node.name, "?"]
+        revert.readyState = "open"
+        revert.setMaxListeners(Infinity)
+
+        node.tunnels[id] = tunnel       //注意：这里是node的tunnels
+        that.tunnels[id] = tunnel       //注意：这里是node的tunnels
+
+        finished(tunnel, () => {
+            delete node.tunnels[id]
+        })
+
+        finished(tunnel, () => {
+            delete that.tunnels[id]
+        })
+
+        const tunnels = [
+            [tunnel, node],
+            [revert, that]
+        ]
+
+        for (const one of tunnels) {
+            const tunnel = one[0] as Tunnel
+            const node = one[1] as Node
+
+            tunnel._write = (chunk, encoding, callback) => {
+                node.socket?.write("tunnel::data", id, chunk)
+                callback()
+            }
+
+            tunnel._read = () => { };
+            tunnel._final = (callback: (error?: Error | null) => void) => {
+                node.socket?.write("tunnel::final", id)
+                callback()
+                if (tunnel.readableEnded) {
+                    tunnel.destroy()
+                }
+            }
+
+            tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+                node.socket?.write("tunnel::close", id)
+                callback(error)
+            }
+        }
+
+        tunnel.pipe(revert).pipe(tunnel)
+
+        revert.once("connect", (...args: any[]) => {
+            node.socket?.write("tunnel::connection", ...args)
+        })
+
+        that.socket.write("tunnel::connect", id, address, ...args)
     }
 
     create_component(options: ComponentOption) {
@@ -628,105 +691,73 @@ export class Application {
             throw new Error(`unsupported component type: ${options.type} in ${options.name}`)
         }
 
-        return new class_(options)
+        const component = new class_(options)
+
+        component.options = options
+        component.create_site = this.create_site.bind(this)
+        component.createConnection = this.connect_component.bind(this, component)
+        component.setMaxListeners(Infinity)
+
+        component.on("close", () => {
+            const error = new Error(`tunnel destroy by component[${component.name}] closed`)
+            for (let id in component.tunnels) {
+                const tunnel = component.tunnels[id]
+                tunnel.destroy(error)
+            }
+            component.tunnels = {}
+        })
+
+        return component
     }
 
     connect_component(from_component: Component, address: string, context: { source: any, dest: any }, callback?: ConnectListener) {
-        const tunnel = new Tunnel()
 
-        tunnel.destination = address
+        const [dest_node, dest_component] = address.split("/")
+        const next_node = this.find_route_next(dest_node)
+
+        if (next_node == null) {
+            console.error("connect_component error:no route to next", address)
+            return
+        }
+
+        if (this.name != next_node) {
+            const route = this.nodes[next_node]
+            return this.connect_remote_component(from_component, route, [dest_node, dest_component], context, callback)
+        }
+
+        const component = this.components[dest_component]
+        if (component == null) {
+            return
+        }
+
+        return this.connect_local_component(from_component, component, context, callback)
+    }
+
+    connect_local_component(from_component: Component, to_component: Component, context: any, callback?: ConnectListener) {
+
+        const tunnel = new Tunnel()
+        const revert = new Tunnel(tunnel.id)
+
+        tunnel.remote = [this.name, to_component.name]
         tunnel.setMaxListeners(Infinity)
+
+        revert.remote = [this.name, from_component.name]
+        revert.setMaxListeners(Infinity)
 
         if (callback) {
             tunnel.once("connect", callback)
         }
 
-        const [dest_node, dest_component] = address.split("/")
-        const next_node = this.find_route_next(dest_node)
+        from_component.tunnels[tunnel.id] = tunnel
+        to_component.tunnels[revert.id] = revert
 
-        const target = this.nodes[next_node]
+        finished(tunnel, () => {
+            delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+        })
 
-        if (target == null) {
-            tunnel._read = () => { }
-            setImmediate(() => {
-                tunnel.destroy(new Error(`tunnel to ${address} failed,no such node: ${dest_node}`))
-            })
-            return tunnel
-        }
-
-        let destroy = (id: string, reason?: string) => {
-
-            const existed = this.tunnels[id]
-
-            if (!existed) {
-                return
-            }
-
-            delete this.tunnels[id]
-
-            if (existed.closed || existed.destroyed) {
-                return
-            }
-
-            if (reason) {
-                existed.destroy(new Error(`tunnel to ${address} ${reason}`))
-            }
-            else {
-                existed.destroy()
-            }
-        }
-
-        const id = tunnel.id
-
-        from_component.once("close", destroy.bind(null, tunnel.id, "from componenet close"))
-
-        if (target.socket) {
-
-            // console.log(this.name, "tunnel::connect_component ,from:", from_component.name, id, address)
-
-            this.tunnels[tunnel.id] = tunnel
-
-            target.socket.write("tunnel::connect", tunnel.id, address, context)
-
-            tunnel._read = () => { }
-            tunnel._write = (chunk, encoding, callback) => {
-                target.socket?.write("tunnel::data", tunnel.id, chunk)
-                callback()
-            }
-
-            //本方不再发送数据数据
-            tunnel._final = (callback: (error?: Error | null) => void) => {
-                target.socket?.write("tunnel::final", tunnel.id)
-                callback()
-
-                if (tunnel.readableEnded) {
-                    tunnel.destroy()
-                }
-            }
-            tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-                target.socket?.write("tunnel::close", id, this.wrap_error(error))
-                delete this.tunnels[id]
-                callback(error)
-            }
-
-            //对端断开了，那么tunnel也要销毁
-            target.socket.once("close", destroy.bind(null, tunnel.id, `from component[${from_component.name}] destroy because of node[${target.name}] closed`))
-
-            return tunnel
-        }
-
-        const component = target.components[dest_component]
-
-        if (component == null) {
-            setImmediate(() => {
-                tunnel.emit("error", new Error(`connect error, such component: ${address}`))
-            })
-            return tunnel
-        }
-
-        const revert = new Tunnel()
-
-        revert.setMaxListeners(Infinity)
+        finished(revert, () => {
+            delete to_component.tunnels[revert.id]       //在 component的close事件那里，统一做destroy
+        })
 
         tunnel._write = (chunk, encoding, callback) => {
             if (!revert.push(chunk, encoding)) {
@@ -754,9 +785,7 @@ export class Application {
         };
 
         tunnel._final = (callback: (error?: Error | null) => void) => {
-
             callback()
-
             tunnel.readyState = "readOnly"
             revert.emit("end")
             if (tunnel.readableEnded) {
@@ -765,13 +794,9 @@ export class Application {
         }
 
         revert._final = (callback: (error?: Error | null) => void) => {
-
             callback()
-
             revert.readyState = "readOnly"
-
             tunnel.emit("end")
-
             if (revert.readableEnded) {
                 revert.destroy()
             }
@@ -788,27 +813,66 @@ export class Application {
             tunnel.emit("close")
         }
 
-        revert.on("error", () => { })       //no op
         revert.connecting = false
         revert.readyState = "open"
+
         revert.cork()
-
-        component.once("close", destroy.bind(null, revert.id, `tunnel[${revert.id}] destroy because parent[${component.name}] closed`))
         setImmediate(() => {
-            component.emit("connection", revert, context, (...args: any[]) => {
-
-                revert.uncork()
-
+            to_component.emit("connection", revert, context, (...args: any[]) => {
                 tunnel.connecting = false
                 tunnel.readyState = "open"
 
                 tunnel.emit("connect", ...args)
+                revert.uncork()
             })
         })
 
         return tunnel
     }
 
+    connect_remote_component(from_component: Component, to_node: Node, address: ComponentAddress, context: any, callback: (error: Error | null, component: any) => void) {  //from_component is the local component, to
+
+        const tunnel = new Tunnel()
+
+        tunnel.remote = address
+        tunnel.setMaxListeners(Infinity)
+
+        if (callback) {
+            tunnel.once("connect", callback)
+        }
+
+        from_component.tunnels[tunnel.id] = tunnel
+        to_node.tunnels[tunnel.id] = tunnel
+
+        finished(tunnel, () => {
+            delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+            delete to_node.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+        })
+
+        tunnel._read = () => { }
+        tunnel._write = (chunk, encoding, callback) => {
+            to_node.socket?.write("tunnel::data", tunnel.id, chunk)
+            callback()
+        }
+        //本方不再发送数据数据
+        tunnel._final = (callback: (error?: Error | null) => void) => {
+            to_node.socket?.write("tunnel::final", tunnel.id)
+            tunnel.readyState = "readOnly"
+            callback()
+            if (tunnel.readableEnded) {
+                tunnel.destroy()
+            }
+        }
+        tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            to_node.socket?.write("tunnel::close", tunnel.id, this.wrap_error(error))
+            tunnel.readyState = "closed"
+            callback(error)
+        }
+
+        to_node.socket.write("tunnel::connect", tunnel.id, address, context)
+
+        return tunnel
+    }
 
     create_site(options: SiteOptions) {
 
@@ -816,10 +880,6 @@ export class Application {
         if (port_server == null) {
             port_server = this.create_http_server(options)
         }
-
-        // else if ((port_server.ssl == null) != (options.ssl == null)) {
-        //     throw new Error(`confict ssl options at ${options.port}`)
-        // }
 
         let site = port_server.sites.get(options.host)
         if (site) {
