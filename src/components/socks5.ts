@@ -1,6 +1,7 @@
 import * as dgram from 'dgram';
 import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectionContext, ConnectListener } from "../types.js";
 import { read_address, write_address } from '../utils.js';
+import { finished } from 'stream';
 
 //https://www.cnblogs.com/zahuifan/articles/2816789.html
 //https://guiyongdong.github.io/2017/12/09/Socks5%E4%BB%A3%E7%90%86%E5%88%86%E6%9E%90/
@@ -39,15 +40,9 @@ export default class Socks5 extends Component {
             tunnel.next()
         })
 
-        if (this.options.debug) {
-            tunnel.on("data", (data: Buffer) => {
-                console.log(this.name, "recv tunnel data", data.length)
-            })
-
-            tunnel.on("end", () => {
-                console.log(this.name, "end")
-            })
-        }
+        // finished(tunnel, () => {
+        //     tunnel.destroy()
+        // })
     }
 
     from_pendings(tunnel: CachedTunnel, at_least_length: number) {

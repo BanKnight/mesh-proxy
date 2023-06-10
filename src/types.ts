@@ -145,6 +145,7 @@ export class Tunnel extends Duplex {
     constructor(id?: string, options?: DuplexOptions) {
         super({
             ...options,
+            allowHalfOpen: false,   //可读端end的时候，调用可写端.end()了
             autoDestroy: true,
             emitClose: true,
             objectMode: false,

@@ -102,7 +102,7 @@ export default class Free extends Component {
         });
 
         socket.on('close', (has_error) => {
-            tunnel.end()
+            tunnel.destroy()
             socket.destroy()
 
             this.alive_tcp--
@@ -138,7 +138,7 @@ export default class Free extends Component {
         })
 
         socket.on("close", () => {
-            tunnel.end()
+            tunnel.destroy()
         })
 
         tunnel.on("error", () => {
@@ -151,7 +151,7 @@ export default class Free extends Component {
             socket.disconnect()
         })
         tunnel.on("close", () => {
-            tunnel.end()
+            tunnel.destroy()
             socket.disconnect()
         })
 

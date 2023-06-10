@@ -79,7 +79,7 @@ export default class udp extends Component {
 
             socket.on("close", () => {
                 socket.close()
-                session.tunnel.end()
+                session.tunnel.destroy()
             })
 
             session.tunnel.on("data", (buffer) => {
@@ -147,7 +147,7 @@ export default class udp extends Component {
             })
             socket.on("close", () => {
                 socket.close()
-                tunnel.end()
+                tunnel.destroy()
             })
             tunnel.on("data", (buffer) => {
                 socket.send(buffer)

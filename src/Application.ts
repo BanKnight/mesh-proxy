@@ -427,14 +427,8 @@ export class Application {
         node.socket.on("regist", (options: ComponentOption) => {
 
             const [node_name, component_name] = options.name.split("/")
-            const route = this.find_route_next(node_name)
 
-            if (route == null) {
-                console.error("no route to regist:", options.name)
-                return
-            }
-
-            if (route != this.name) {
+            if (node_name != this.name) {
                 console.error("unsupported remote regist", options.name)
                 return
             }
@@ -525,12 +519,12 @@ export class Application {
             }
 
             //对端停止发送数据过来，那么这条通路就可以关了
-            delete node.tunnels[id]
+            // delete node.tunnels[id]
 
             // console.log(this.name, "tunnel::final from", node.name, tunnel.id)
 
             tunnel.readyState = "writeOnly"
-            tunnel.emit("end")
+            tunnel.push(null)
         })
 
         node.socket.on("tunnel::error", (id: string, error: any) => {
@@ -594,6 +588,8 @@ export class Application {
         finished(tunnel, () => {
             delete node.tunnels[id]
             delete component.tunnels[id]
+
+            tunnel.destroy()
         })
 
         tunnel._write = (chunk, encoding, callback) => {
@@ -605,9 +601,6 @@ export class Application {
         tunnel._final = (callback: (error?: Error | null) => void) => {
             node.socket?.write("tunnel::final", id)
             callback()
-            if (tunnel.readableEnded) {
-                tunnel.destroy()
-            }
         }
 
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -635,15 +628,17 @@ export class Application {
         revert.readyState = "open"
         revert.setMaxListeners(Infinity)
 
-        node.tunnels[id] = tunnel       //注意：这里是node的tunnels
-        that.tunnels[id] = tunnel       //注意：这里是node的tunnels
+        node.tunnels[id] = tunnel
+        that.tunnels[id] = revert
 
         finished(tunnel, () => {
             delete node.tunnels[id]
+            tunnel.destroy()
         })
 
-        finished(tunnel, () => {
+        finished(revert, () => {
             delete that.tunnels[id]
+            revert.destroy()
         })
 
         const tunnels = [
@@ -664,9 +659,6 @@ export class Application {
             tunnel._final = (callback: (error?: Error | null) => void) => {
                 node.socket?.write("tunnel::final", id)
                 callback()
-                if (tunnel.readableEnded) {
-                    tunnel.destroy()
-                }
             }
 
             tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
@@ -753,10 +745,12 @@ export class Application {
 
         finished(tunnel, () => {
             delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+            tunnel.destroy()
         })
 
         finished(revert, () => {
             delete to_component.tunnels[revert.id]       //在 component的close事件那里，统一做destroy
+            revert.destroy()
         })
 
         tunnel._write = (chunk, encoding, callback) => {
@@ -787,19 +781,15 @@ export class Application {
         tunnel._final = (callback: (error?: Error | null) => void) => {
             callback()
             tunnel.readyState = "readOnly"
-            revert.emit("end")
-            if (tunnel.readableEnded) {
-                tunnel.destroy()
-            }
+            // revert.emit("end")
+            revert.push(null)
         }
 
         revert._final = (callback: (error?: Error | null) => void) => {
             callback()
             revert.readyState = "readOnly"
-            tunnel.emit("end")
-            if (revert.readableEnded) {
-                revert.destroy()
-            }
+            // tunnel.emit("end")
+            tunnel.push(null)
         }
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             tunnel.readyState = "closed"
@@ -817,14 +807,15 @@ export class Application {
         revert.readyState = "open"
 
         revert.cork()
-        setImmediate(() => {
-            to_component.emit("connection", revert, context, (...args: any[]) => {
-                tunnel.connecting = false
-                tunnel.readyState = "open"
+        to_component.emit("connection", revert, context, (...args: any[]) => {
 
+            tunnel.connecting = false
+            tunnel.readyState = "open"
+
+            process.nextTick(() => {
                 tunnel.emit("connect", ...args)
-                revert.uncork()
             })
+            revert.uncork()
         })
 
         return tunnel
@@ -844,9 +835,11 @@ export class Application {
         from_component.tunnels[tunnel.id] = tunnel
         to_node.tunnels[tunnel.id] = tunnel
 
-        finished(tunnel, () => {
+        finished(tunnel, { writable: true, readable: true }, () => {
             delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
-            delete to_node.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+            delete to_node.tunnels[tunnel.id]
+
+            tunnel.destroy()
         })
 
         tunnel._read = () => { }
@@ -859,9 +852,6 @@ export class Application {
             to_node.socket?.write("tunnel::final", tunnel.id)
             tunnel.readyState = "readOnly"
             callback()
-            if (tunnel.readableEnded) {
-                tunnel.destroy()
-            }
         }
         tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
             to_node.socket?.write("tunnel::close", tunnel.id, this.wrap_error(error))
