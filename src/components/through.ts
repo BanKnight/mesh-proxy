@@ -25,6 +25,12 @@ export default class Through extends Component {
 
         const next = this.createConnection(this.options.pass, context, callback)
 
+        if (next == null) {
+            console.error("cant tunnel to pass", this.options.pass)
+            tunnel.destroy()
+            return
+        }
+
         tunnel.pipe(next).pipe(tunnel)
 
         finished(tunnel, () => {

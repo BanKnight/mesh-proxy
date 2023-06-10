@@ -72,6 +72,11 @@ export default class Router extends Component {
 
         const next = this.createConnection(next_pass, context, callback)
 
+        if (next == null) {
+            tunnel.destroy()
+            return
+        }
+
         tunnel.pipe(next).pipe(tunnel)
 
         const destroy = () => {

@@ -76,6 +76,11 @@ export default class Tcp extends Component {
 
             const duplex = ws.createWebSocketStream(socket)
             const tunnel = this.createConnection(this.options.pass, context)
+            if (tunnel == null) {
+                console.error("cant tunnel to pass", this.options.pass)
+                duplex.destroy()
+                return
+            }
 
             duplex.pipe(tunnel).pipe(duplex)
 

@@ -82,11 +82,6 @@ export default class udp extends Component {
                 session.tunnel.destroy()
             })
 
-            session.tunnel.on("data", (buffer) => {
-                session.last = Date.now()
-                socket.send(buffer, remote_info.port, remote_info.address)
-            })
-
             session.tunnel.on("error", () => { })
             session.tunnel.on("end", () => {
                 session.tunnel.end()
@@ -94,6 +89,11 @@ export default class udp extends Component {
 
             session.tunnel.on("close", () => {
                 session.tunnel.end()
+            })
+
+            session.tunnel.on("data", (buffer) => {
+                session.last = Date.now()
+                socket.send(buffer, remote_info.port, remote_info.address)
             })
 
             session.tunnel.write(message)

@@ -191,6 +191,11 @@ export default class Vless extends Component {
         }
 
         const next = this.createConnection(pass, context)
+        if (next == null) {
+            console.error("cant tunnel to pass", pass)
+            tunnel.destroy()
+            return
+        }
 
         tunnel.pipe(next).pipe(tunnel)
 
@@ -215,7 +220,11 @@ export default class Vless extends Component {
         }
 
         const next = this.createConnection(pass, context)
-
+        if (next == null) {
+            console.error("cant tunnel to pass", pass)
+            tunnel.destroy()
+            return
+        }
         const destroy = () => {
             if (!tunnel.destroyed) {
                 tunnel.destroy()
@@ -317,15 +326,14 @@ export default class Vless extends Component {
             return
         }
 
-        let tunnel_sessions = this.sessions[tunnel.id]
-        if (tunnel_sessions == null) {
-            tunnel_sessions = this.sessions[tunnel.id] = {}
-        }
-
         // console.log("😀 recv mux new", tunnel.id, session.id, session.host, session.protocol)
 
         session.tunnel = this.createConnection(this.options.pass, { src: context.src, dest: session })
-
+        if (session.tunnel == null) {
+            console.error("cant tunnel to pass", this.options.pass)
+            tunnel.destroy()
+            return
+        }
         if (extra && extra.length > 0) {
             session.tunnel.write(extra)
         }
@@ -340,6 +348,13 @@ export default class Vless extends Component {
             session.tunnel.end()
             this.send_end_resp(tunnel, session)
         })
+
+        let tunnel_sessions = this.sessions[tunnel.id]
+        if (tunnel_sessions == null) {
+            tunnel_sessions = this.sessions[tunnel.id] = {}
+        }
+
+        tunnel_sessions[session.id] = session
 
         session.tunnel.on("error", (e) => {
             session.tunnel.end()
@@ -363,7 +378,6 @@ export default class Vless extends Component {
             delete tunnel_sessions[session.id]
         })
 
-        tunnel_sessions[session.id] = session
     }
 
     mux_keep(tunnel: CachedTunnel, context: ConnectionContext, meta: Buffer, extra?: Buffer) {

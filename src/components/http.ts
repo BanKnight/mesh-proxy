@@ -94,6 +94,14 @@ export default class Http extends Component {
             }
         })
 
+        if (tunnel == null) {
+            if (!res.headersSent) {
+                res.writeHead(502, "Bad gateway")
+                res.end()
+            }
+            return
+        }
+
         req.pipe(tunnel).pipe(res)
 
         finished(req, () => {
@@ -105,11 +113,10 @@ export default class Http extends Component {
         finished(tunnel, (error?: Error) => {
             if (error) {
                 if (!res.headersSent) {
-                    res.writeHead(502, error.message)
+                    res.writeHead(500, error.message)
                     res.end()
                 }
             }
-
             if (!tunnel.destroyed) {
                 tunnel.destroy()
             }
@@ -142,6 +149,11 @@ export default class Http extends Component {
             }
             const stream = createWebSocketStream(wsocket, location as unknown)
             const tunnel = this.createConnection(location.pass, context)
+
+            if (tunnel == null) {
+                stream.destroy()
+                return
+            }
 
             req.socket.setKeepAlive(true)
             req.socket.setNoDelay(true)

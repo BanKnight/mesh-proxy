@@ -10,6 +10,7 @@ export default class Free extends Component {
     alive_tcp = 0
     alive_udp = 0; 					//number of alive udp connections
     timer: NodeJS.Timer;			//timer for keepalive messages
+    // sockets: Record<string, any> = {}
 
     constructor(options: ComponentOption) {
         super(options)
@@ -94,20 +95,28 @@ export default class Free extends Component {
 
         socket.pipe(tunnel).pipe(socket)
 
-        const destroy = () => {
+        const destroy = (error?: Error) => {
             if (!tunnel.destroyed) {
                 tunnel.destroy()
             }
 
             if (!socket.destroyed) {
                 this.alive_tcp--;
+                // delete this.sockets[tunnel.id]
                 socket.destroy()
             }
         }
         finished(socket, destroy)
         finished(tunnel, destroy)
 
-        socket.on("error", console.error)
+        socket.once("error", (e) => {
+
+            if (socket.pending) {
+                this.alive_tcp--;
+            }
+
+            console.error(e)
+        })
     }
 
     handle_udp(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {

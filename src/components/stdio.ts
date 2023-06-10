@@ -20,6 +20,11 @@ export default class Stdio extends Component {
 
         const tunnel = this.createConnection(this.options.pass, context)
 
+        if (tunnel == null) {
+            console.error("cant tunnel to pass", this.options.pass)
+            return
+        }
+
         process.stdin.pipe(tunnel)
 
         tunnel.once("error", (e) => {

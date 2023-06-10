@@ -53,6 +53,11 @@ export default class Rsync extends Component {
             tunnel.destroy()
         })
 
+        if (tunnel == null) {
+            console.error("can't send pass", this.options.pass)
+            return
+        }
+
         tunnel.on("error", (e) => {
             if (tunnel.readyState == "opening") {   //connect failed
                 console.error(e.message)
@@ -137,6 +142,11 @@ export default class Rsync extends Component {
             tunnel.destroy()
         })
 
+        if (tunnel == null) {
+            console.error("can't send pass", this.options.pass)
+            return
+        }
+
         const destroy = () => {
             if (!tunnel.destroyed) {
                 tunnel.destroy()
@@ -158,6 +168,11 @@ export default class Rsync extends Component {
             const stream = fs.createReadStream(whole)
 
             const tunnel = this.createConnection(this.options.pass, { cmd: "update", relative, stats })
+            if (tunnel == null) {
+                console.error("can't send pass", this.options.pass)
+                return
+            }
+
             const destroy = () => {
                 if (!tunnel.destroyed) {
                     tunnel.destroy()

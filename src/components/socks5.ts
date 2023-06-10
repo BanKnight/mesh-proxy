@@ -254,6 +254,16 @@ export default class Socks5 extends Component {
             tunnel.write(temp.subarray(0, offset))      //告知客户端
         })
 
+        if (next == null) {
+            console.error("can't send pass", this.options.pass)
+            resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
+            if (tunnel.writable) {
+                tunnel.end(resp)
+            }
+            tunnel.destroy()
+            return
+        }
+
         tunnel.pipe(next).pipe(tunnel)
 
         finished(next, (error?: Error) => {
@@ -298,6 +308,12 @@ export default class Socks5 extends Component {
         //同样的，自己也建立一个udp地址，用来映射源
         //由于udp可以通过localAddress+localPort 往不同的 remoteAddress + remotePort 发送
         const next = this.createConnection(this.options.pass, { dest: { protocol: "udp" }, socks5: true })
+        if (next == null) {
+            console.error("cant tunnel to pass", this.options.pass)
+            tunnel.destroy()
+            return
+        }
+
         const socket = dgram.createSocket("udp4")
 
         socket.bind(() => {      //告诉客户端用这个地址连过来

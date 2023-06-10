@@ -56,6 +56,12 @@ export default class Tcp extends Component {
             }
             const tunnel = this.createConnection(this.options.pass, context)
 
+            if (tunnel == null) {
+                console.error("cant tunnel to pass", this.options.pass)
+                socket.destroy()
+                return
+            }
+
             socket.setKeepAlive(true)
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)

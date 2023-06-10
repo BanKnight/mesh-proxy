@@ -478,7 +478,7 @@ export class Application {
                 return
             }
 
-            return this.remote_relay_next(node, that, id, address, ...args)
+            return this.remote_to_remote(node, that, id, address, ...args)
         })
 
         node.socket.on("tunnel::connection", (id: string, ...args: any[]) => {
@@ -617,7 +617,7 @@ export class Application {
         })
     }
 
-    remote_relay_next(node: Node, that: Node, id: string, address: ComponentAddress, ...args: any[]) {
+    remote_to_remote(node: Node, that: Node, id: string, address: ComponentAddress, ...args: any[]) {
 
         const tunnel = new Tunnel(id)       //send node
         const revert = new Tunnel(id)        //send that
@@ -720,7 +720,7 @@ export class Application {
 
         if (this.name != next_node) {
             const route = this.nodes[next_node]
-            return this.connect_remote_component(from_component, route, [dest_node, dest_component], context, callback)
+            return this.local_to_remote(from_component, route, [dest_node, dest_component], context, callback)
         }
 
         const component = this.components[dest_component]
@@ -728,10 +728,10 @@ export class Application {
             return
         }
 
-        return this.connect_local_component(from_component, component, context, callback)
+        return this.local_to_local(from_component, component, context, callback)
     }
 
-    connect_local_component(from_component: Component, to_component: Component, context: any, callback?: ConnectListener) {
+    local_to_local(from_component: Component, to_component: Component, context: any, callback?: ConnectListener) {
 
         const src_tunnel = new Tunnel()
         const dst_tunnel = new Tunnel(src_tunnel.id)
@@ -829,7 +829,7 @@ export class Application {
         return src_tunnel
     }
 
-    connect_remote_component(from_component: Component, to_node: Node, address: ComponentAddress, context: any, callback: (error: Error | null, component: any) => void) {  //from_component is the local component, to
+    local_to_remote(from_component: Component, to_node: Node, address: ComponentAddress, context: any, callback: (error: Error | null, component: any) => void) {  //from_component is the local component, to
 
         const tunnel = new Tunnel()
 
