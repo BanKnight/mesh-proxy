@@ -2,6 +2,7 @@ import * as dgram from 'dgram';
 import { Socket, createConnection } from "net";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 import { read_address, write_address } from '../utils.js';
+import { finished } from 'stream';
 
 let temp = Buffer.alloc(1024)
 export default class Free extends Component {
@@ -64,14 +65,13 @@ export default class Free extends Component {
 
         console.log(this.name, "tcp try connect", context.dest.host, context.dest.port)
 
+        this.alive_tcp++
         const socket = createConnection({
             ...context.dest,
             keepAlive: true,
             noDelay: true,
             timeout: 0,
         } as any, () => {
-
-            this.alive_tcp++
 
             if (this.options.debug) {
                 console.log(this.name, "tcp connected", context.dest.host, context.dest.port)
@@ -93,33 +93,21 @@ export default class Free extends Component {
         })
 
         socket.pipe(tunnel).pipe(socket)
-        socket.on('end', () => {
-            tunnel.end()
-            // socket.destroy()
-            if (this.options.debug) {
-                console.log(this.name, "tcp end", context.dest.host, context.dest.port)
-            }
-        });
 
-        socket.on('close', (has_error) => {
-            tunnel.destroy()
-            socket.destroy()
-
-            this.alive_tcp--
-
-            if (this.options.debug) {
-                console.log(this.name, "tcp close", has_error, context.dest.host, context.dest.port)
-            }
-        });
-
-        socket.on("error", (error: Error) => {
-            if (socket.readyState == "opening") {
-                console.log(this.name, "tcp connect failed", context.dest.host, context.dest.port)
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
             }
 
-            tunnel.destroy()
-            socket.destroy()
-        })
+            if (!socket.destroyed) {
+                this.alive_tcp--;
+                socket.destroy()
+            }
+        }
+        finished(socket, destroy)
+        finished(tunnel, destroy)
+
+        socket.on("error", console.error)
     }
 
     handle_udp(tunnel: Tunnel, context: ConnectionContext, callback: ConnectListener) {
@@ -132,33 +120,37 @@ export default class Free extends Component {
 
         const socket = dgram.createSocket("udp4")
 
-        socket.on("error", (error: Error) => {
-            tunnel.destroy(error)
-            socket.disconnect()
-        })
+        let connected = false
+        let no_more = false
 
-        socket.on("close", () => {
-            tunnel.destroy()
-        })
+        const destroy = () => {
+            no_more = true
 
-        tunnel.on("error", () => {
-            tunnel.end()
-            socket.disconnect()
-        })
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
 
-        tunnel.on("end", () => {
-            tunnel.end()
-            socket.disconnect()
-        })
-        tunnel.on("close", () => {
-            tunnel.destroy()
-            socket.disconnect()
-        })
+            if (connected) {
+                connected = false
+                socket.disconnect()
+            }
+        }
+
+        finished(tunnel, destroy)
+
+        socket.on("error", destroy)
+        socket.on("close", destroy)
+        socket.on("error", console.error)
 
         if (should_connect) {   //指定了对端地址，那么所有的数据都是直接发送的
 
             socket.connect(context.dest.port, context.dest.host, () => {
+                connected = true
                 callback(socket.address())
+
+                if (no_more) {
+                    socket.disconnect()
+                }
             })
 
             tunnel.on("data", (buffer) => {
@@ -201,7 +193,12 @@ export default class Free extends Component {
 
             socket.bind(() =>   //绑定到本地的一个系统分配的地址，然后固化下来
             {
+                connected = true
                 callback(socket.address())
+
+                if (no_more) {
+                    socket.disconnect()
+                }
             })
         }
     }

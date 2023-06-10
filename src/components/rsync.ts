@@ -1,6 +1,7 @@
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 import fs from "fs"
 import path from "path"
+import { finished } from "stream";
 
 export default class Rsync extends Component {
     root: string
@@ -136,9 +137,12 @@ export default class Rsync extends Component {
             tunnel.destroy()
         })
 
-        tunnel.once("error", () => {
-            tunnel.destroy()
-        })
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+        }
+        finished(tunnel, destroy)
     }
 
     sync_adds(array: string[]) {
@@ -154,20 +158,16 @@ export default class Rsync extends Component {
             const stream = fs.createReadStream(whole)
 
             const tunnel = this.createConnection(this.options.pass, { cmd: "update", relative, stats })
-
-            stream.pipe(tunnel)
-            stream.on("close", () => {
-                tunnel.destroy()
-            })
-            tunnel.on("error", () => {
-                stream.close()
-            })
-            tunnel.on("end", () => {
-                stream.close()
-            })
-            tunnel.on("close", () => {
-                stream.close()
-            })
+            const destroy = () => {
+                if (!tunnel.destroyed) {
+                    tunnel.destroy()
+                }
+                if (!stream.destroyed) {
+                    stream.destroy()
+                }
+            }
+            finished(stream, destroy)
+            finished(tunnel, destroy)
         }
     }
 

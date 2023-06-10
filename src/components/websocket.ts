@@ -4,13 +4,13 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import ws from 'ws';
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
+import { finished } from 'stream';
 
 type IdWsSocket = ws.WebSocket & { id: string }
 
 export default class Tcp extends Component {
     id: number = 0
     server?: ws.Server
-    sockets: Record<string, IdWsSocket> = {}        //[remote_id] = socket 
 
     constructor(options: ComponentOption) {
         super(options)
@@ -30,11 +30,6 @@ export default class Tcp extends Component {
     close(error?: Error) {
         this.server?.removeAllListeners()
         this.server?.close()
-
-        for (let id in this.sockets) {
-            const socket = this.sockets[id]
-            socket.close()
-        }
     }
 
     listen() {
@@ -88,17 +83,17 @@ export default class Tcp extends Component {
             req.socket.setNoDelay(true)
             req.socket.setTimeout(3000)
 
-            this.sockets[socket.id] = socket
+            const destroy = () => {
+                if (!tunnel.destroyed) {
+                    tunnel.destroy()
+                }
 
-            duplex.on("close", () => {
-                delete this.sockets[socket.id]
-                tunnel.end()
-            })
-
-            tunnel.once("error", (e) => {
-                socket.close()
-                tunnel.destroy()
-            })
+                if (!duplex.destroyed) {
+                    duplex.destroy()
+                }
+            }
+            finished(duplex, destroy)
+            finished(tunnel, destroy)
         });
 
         http_or_https.listen(this.options.port, () => {
@@ -131,17 +126,18 @@ export default class Tcp extends Component {
         const socket = new ws.WebSocket(this.options.url, this.options as unknown) as IdWsSocket
         const stream = ws.createWebSocketStream(socket)
 
-        stream.on("error", () => {
-            tunnel.end()
-            stream.destroy()
-        })
-        stream.on("close", () => {
-            tunnel.end()
-        })
-        tunnel.on("error", () => {
-            stream.destroy()
-            tunnel.end()
-        })
-        tunnel.pipe(stream, { end: true }).pipe(tunnel, { end: true })
+        tunnel.pipe(stream).pipe(tunnel)
+
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+
+            if (!stream.destroyed) {
+                stream.destroy()
+            }
+        }
+        finished(stream, destroy)
+        finished(tunnel, destroy)
     }
 }

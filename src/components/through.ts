@@ -1,3 +1,4 @@
+import { finished } from "stream";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 
 export default class Through extends Component {
@@ -26,15 +27,23 @@ export default class Through extends Component {
 
         tunnel.pipe(next).pipe(tunnel)
 
-        next.on("error", (e) => {
-            tunnel.destroy(e)
+        finished(tunnel, () => {
             next.destroy()
         })
 
-        tunnel.on("error", () => {
+        finished(next, () => {
             tunnel.destroy()
-            next.destroy()
         })
+
+        // next.on("error", (e) => {
+        //     tunnel.destroy(e)
+        //     next.destroy()
+        // })
+
+        // tunnel.on("error", () => {
+        //     tunnel.destroy()
+        //     next.destroy()
+        // })
     }
 
     close() {

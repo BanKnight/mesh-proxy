@@ -1,5 +1,6 @@
 import { Server, Socket, createServer, createConnection } from "net";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
+import { finished } from "stream";
 
 export default class Tcp extends Component {
     // id: number = 0
@@ -59,33 +60,17 @@ export default class Tcp extends Component {
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
 
-            socket.on('close', (hadError) => {
-                tunnel.destroy()
-                socket.destroy()
-            });
-            socket.on("error", () => {
-                socket.destroy()
-                tunnel.destroy()
-            })
+            const destroy = () => {
+                if (!tunnel.destroyed) {
+                    tunnel.destroy()
+                }
 
-            tunnel.once("error", (e) => {
-                socket.destroy()
-                tunnel.destroy()
-            })
-
-            if (this.options.debug) {
-                socket.on("end", () => {
-                    console.log("socket end")
-                })
-
-                socket.on("data", (data: Buffer) => {
-                    console.log(this.name, "recv socket data", data.length)
-                })
-
-                tunnel.on("data", (data: Buffer) => {
-                    console.log(this.name, "recv tunnel data", data.length)
-                })
+                if (!socket.destroyed) {
+                    socket.destroy()
+                }
             }
+            finished(socket, destroy)
+            finished(tunnel, destroy)
         })
 
         this.server.on('error', (e: any) => {
@@ -113,15 +98,18 @@ export default class Tcp extends Component {
             socket.setNoDelay(true)
             socket.pipe(tunnel).pipe(socket)
 
-            socket.on('close', (has_error) => {
-                tunnel.destroy()
-                socket.destroy()
-            });
+            const destroy = () => {
+                if (!tunnel.destroyed) {
+                    tunnel.destroy()
+                }
+                if (!socket.destroyed) {
+                    socket.destroy()
+                }
+            }
+            finished(socket, destroy)
+            finished(tunnel, destroy)
 
-            socket.once("error", (error: Error) => {
-                socket.destroy()
-                tunnel.destroy(error)
-            })
+            socket.on("error", console.error)
         })
     }
 }

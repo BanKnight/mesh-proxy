@@ -1,5 +1,6 @@
 import { clearInterval } from "timers";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
+import { finished } from "stream";
 
 export default class Hole extends Component {
     constructor(options: ComponentOption) {
@@ -32,18 +33,18 @@ export default class Hole extends Component {
         tunnel.on("data", (data) => {
             last = Date.now()
         })
-        tunnel.on("error", () => {
-            tunnel.end()
-        })
-        tunnel.on("end", () => {
-            tunnel.end()
-        })
-        tunnel.on("close", () => {
-            tunnel.end()
 
+        finished(tunnel, () => {
             if (timer) {
                 clearInterval(timer)
+                timer = null
             }
+
+            if (tunnel.destroyed) {
+                return
+            }
+
+            tunnel.destroy()
         })
 
         if (!this.options.timeout) {

@@ -4,7 +4,7 @@ import http from "http"
 import url, { UrlWithStringQuery } from "url"
 import { Component, ComponentOption, SiteInfo, Tunnel, Location, ConnectionContext, ConnectListener } from "../types.js";
 import { url_join, has_port } from "../utils.js";
-import { Duplex } from "stream";
+import { Duplex, finished } from "stream";
 
 const isSSL = /^https|wss/;
 const upgradeHeader = /(^|,)\s*upgrade\s*($|,)/i
@@ -94,12 +94,24 @@ export default class Http extends Component {
             }
         })
 
-        req.pipe(tunnel, { end: true }).pipe(res, { end: true })
+        req.pipe(tunnel).pipe(res)
 
-        tunnel.once("error", (e) => {
-            if (!res.headersSent) {
-                res.writeHead(502, e.message)
-                res.end()
+        finished(req, () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+        })
+
+        finished(tunnel, (error?: Error) => {
+            if (error) {
+                if (!res.headersSent) {
+                    res.writeHead(502, error.message)
+                    res.end()
+                }
+            }
+
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
             }
         })
     }

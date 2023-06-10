@@ -341,7 +341,7 @@ export class Application {
             tunnel.destroy(error)
         }
 
-        node.tunnels = {}
+        // node.tunnels = {}
 
         this.update_sites()
     }
@@ -585,11 +585,13 @@ export class Application {
         node.tunnels[id] = tunnel       //注意：这里是node的tunnels
         component.tunnels[id] = tunnel
 
-        finished(tunnel, () => {
+        finished(tunnel, (error) => {
             delete node.tunnels[id]
             delete component.tunnels[id]
 
-            tunnel.destroy()
+            if (!tunnel.destroyed) {
+                tunnel.destroy(error)
+            }
         })
 
         tunnel._write = (chunk, encoding, callback) => {
@@ -610,8 +612,8 @@ export class Application {
 
         tunnel.cork()
         component.emit("connection", tunnel, ...args, (...args: any[]) => {
-            tunnel.uncork()
             node.socket?.write("tunnel::connection", id, ...args)
+            tunnel.uncork()
         })
     }
 
@@ -631,14 +633,18 @@ export class Application {
         node.tunnels[id] = tunnel
         that.tunnels[id] = revert
 
-        finished(tunnel, () => {
+        finished(tunnel, (error) => {
             delete node.tunnels[id]
-            tunnel.destroy()
+            if (!tunnel.destroyed) {
+                tunnel.destroy(error)
+            }
         })
 
-        finished(revert, () => {
+        finished(revert, (error) => {
             delete that.tunnels[id]
-            revert.destroy()
+            if (!revert.destroyed) {
+                revert.destroy(error)
+            }
         })
 
         const tunnels = [
@@ -727,98 +733,100 @@ export class Application {
 
     connect_local_component(from_component: Component, to_component: Component, context: any, callback?: ConnectListener) {
 
-        const tunnel = new Tunnel()
-        const revert = new Tunnel(tunnel.id)
+        const src_tunnel = new Tunnel()
+        const dst_tunnel = new Tunnel(src_tunnel.id)
 
-        tunnel.remote = [this.name, to_component.name]
-        tunnel.setMaxListeners(Infinity)
+        src_tunnel.remote = [this.name, to_component.name]
+        src_tunnel.setMaxListeners(Infinity)
 
-        revert.remote = [this.name, from_component.name]
-        revert.setMaxListeners(Infinity)
+        dst_tunnel.remote = [this.name, from_component.name]
+        dst_tunnel.setMaxListeners(Infinity)
 
         if (callback) {
-            tunnel.once("connect", callback)
+            src_tunnel.once("connect", callback)
         }
 
-        from_component.tunnels[tunnel.id] = tunnel
-        to_component.tunnels[revert.id] = revert
+        from_component.tunnels[src_tunnel.id] = src_tunnel
+        to_component.tunnels[dst_tunnel.id] = dst_tunnel
 
-        finished(tunnel, () => {
-            delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
-            tunnel.destroy()
+        finished(src_tunnel, (error) => {
+            delete from_component.tunnels[src_tunnel.id]       //在 component的close事件那里，统一做destroy
+
+            if (!src_tunnel.destroyed) {
+                src_tunnel.destroy(error)
+            }
         })
 
-        finished(revert, () => {
-            delete to_component.tunnels[revert.id]       //在 component的close事件那里，统一做destroy
-            revert.destroy()
+        finished(dst_tunnel, (error) => {
+            delete to_component.tunnels[dst_tunnel.id]       //在 component的close事件那里，统一做destroy
+
+            if (!dst_tunnel.destroyed) {
+                dst_tunnel.destroy(error)
+            }
         })
 
-        tunnel._write = (chunk, encoding, callback) => {
-            if (!revert.push(chunk, encoding)) {
-                tunnel.pause();
+        src_tunnel._write = (chunk, encoding, callback) => {
+            if (!dst_tunnel.push(chunk, encoding)) {
+                src_tunnel.cork();
             }
             callback()
         }
-
-        revert._write = (chunk, encoding, callback) => {
-            if (!tunnel.push(chunk, encoding)) {
-                revert.pause();
+        dst_tunnel._write = (chunk, encoding, callback) => {
+            if (!src_tunnel.push(chunk, encoding)) {
+                dst_tunnel.cork();
             }
             callback()
         }
-
-        tunnel._read = () => {
-            if (revert.isPaused) {
-                revert.resume()
+        src_tunnel._read = () => {
+            if (dst_tunnel.writableCorked) {
+                dst_tunnel.uncork()
             }
         };
-        revert._read = () => {
-            if (tunnel.isPaused) {
-                tunnel.resume()
+        dst_tunnel._read = () => {
+            if (src_tunnel.writableCorked) {
+                src_tunnel.uncork()
             }
         };
 
-        tunnel._final = (callback: (error?: Error | null) => void) => {
+        src_tunnel._final = (callback: (error?: Error | null) => void) => {
             callback()
-            tunnel.readyState = "readOnly"
-            // revert.emit("end")
-            revert.push(null)
+            src_tunnel.readyState = "readOnly"
+            dst_tunnel.push(null)
         }
 
-        revert._final = (callback: (error?: Error | null) => void) => {
+        dst_tunnel._final = (callback: (error?: Error | null) => void) => {
             callback()
-            revert.readyState = "readOnly"
-            // tunnel.emit("end")
-            tunnel.push(null)
+            dst_tunnel.readyState = "readOnly"
+            src_tunnel.push(null)
         }
-        tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-            tunnel.readyState = "closed"
+        src_tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            src_tunnel.readyState = "closed"
             callback(error)
-            revert.emit("close")
+            dst_tunnel.emit("close")
         }
 
-        revert._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
-            revert.readyState = "closed"
+        dst_tunnel._destroy = (error: Error | null, callback: (error: Error | null) => void) => {
+            dst_tunnel.readyState = "closed"
             callback(error)
-            tunnel.emit("close")
+            src_tunnel.emit("close")
         }
 
-        revert.connecting = false
-        revert.readyState = "open"
+        dst_tunnel.connecting = false
+        dst_tunnel.readyState = "open"
 
-        revert.cork()
-        to_component.emit("connection", revert, context, (...args: any[]) => {
+        dst_tunnel.cork()
+        to_component.emit("connection", dst_tunnel, context, (...args: any[]) => {
 
-            tunnel.connecting = false
-            tunnel.readyState = "open"
+            src_tunnel.connecting = false
+            src_tunnel.readyState = "open"
 
             process.nextTick(() => {
-                tunnel.emit("connect", ...args)
+                src_tunnel.emit("connect", ...args)
+                dst_tunnel.uncork()
             })
-            revert.uncork()
         })
 
-        return tunnel
+        return src_tunnel
     }
 
     connect_remote_component(from_component: Component, to_node: Node, address: ComponentAddress, context: any, callback: (error: Error | null, component: any) => void) {  //from_component is the local component, to
@@ -835,11 +843,13 @@ export class Application {
         from_component.tunnels[tunnel.id] = tunnel
         to_node.tunnels[tunnel.id] = tunnel
 
-        finished(tunnel, { writable: true, readable: true }, () => {
-            delete from_component.tunnels[tunnel.id]       //在 component的close事件那里，统一做destroy
+        finished(tunnel, { writable: true, readable: true }, (error) => {
+            delete from_component.tunnels[tunnel.id]
             delete to_node.tunnels[tunnel.id]
 
-            tunnel.destroy()
+            if (!tunnel.destroyed) {
+                tunnel.destroy(error)
+            }
         })
 
         tunnel._read = () => { }

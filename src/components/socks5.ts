@@ -232,7 +232,14 @@ export default class Socks5 extends Component {
     on_cmd_connect(tunnel: CachedTunnel, context: ConnectionContext, resp: Buffer) {
 
         //返回对端的地址给到客户端
+        let resp_sent = false
         const next = this.createConnection(this.options.pass, { ...context, socks5: true }, (linfo: any) => {
+            if (resp_sent == true) {
+                return
+            }
+
+            resp_sent = true
+
             temp[0] = 0x05
             temp[1] = RFC_1928_REPLIES.SUCCEEDED
             temp[2] = 0
@@ -249,18 +256,30 @@ export default class Socks5 extends Component {
 
         tunnel.pipe(next).pipe(tunnel)
 
-        next.on("error", (e) => {
-            if (next.readyState == "opening") {
+        finished(next, (error?: Error) => {
+
+            if (resp_sent == false) {
                 resp[1] = RFC_1928_REPLIES.GENERAL_FAILURE
 
                 if (tunnel.writable) {
                     tunnel.end(resp)
                 }
+
+                resp_sent = true
             }
-            tunnel.destroy(e)
-            next.destroy()
+            if (!tunnel.destroyed) {
+                tunnel.destroy(error)
+            }
         })
 
+        finished(tunnel, (error?: Error) => {
+            if (tunnel.writable) {
+                tunnel.end(resp)
+            }
+            if (!next.destroyed) {
+                next.destroy()
+            }
+        })
     }
 
     /**

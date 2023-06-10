@@ -1,6 +1,7 @@
 import { stringify, v5, validate } from "uuid"
 import { Component, ComponentOption, CachedTunnel, Tunnel, ConnectListener, ConnectionContext } from "../types.js";
 import { read_address } from "../utils.js";
+import { finished } from "stream";
 
 const vless_success_resp = Buffer.from([0, 0])
 const protocol_type_to_name = {
@@ -191,21 +192,19 @@ export default class Vless extends Component {
 
         const next = this.createConnection(pass, context)
 
-        // tunnel.write(vless_success_resp)      //回应
-        // tunnel.unshift(head)
         tunnel.pipe(next).pipe(tunnel)
-        tunnel.on("close", () => {
-            next.end()
-            tunnel.end()
-        })
-        next.on("end", () => {
-            next.end()
-            tunnel.end()
-        })
-        next.on("error", (e) => {
-            next.end()
-            tunnel.end()
-        })
+
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+
+            if (!next.destroyed) {
+                next.destroy()
+            }
+        }
+        finished(next, destroy)
+        finished(tunnel, destroy)
     }
 
     udp(tunnel: Tunnel, context: ConnectionContext) {
@@ -217,21 +216,17 @@ export default class Vless extends Component {
 
         const next = this.createConnection(pass, context)
 
-        // tunnel.write(vless_success_resp)      //回应
-        // tunnel.unshift(head)
-        tunnel.pipe(next).pipe(tunnel)
-        tunnel.on("close", () => {
-            next.end()
-            tunnel.end()
-        })
-        next.on("end", () => {
-            next.end()
-            tunnel.end()
-        })
-        next.on("error", (e) => {
-            next.end()
-            tunnel.end()
-        })
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+
+            if (!next.destroyed) {
+                next.destroy()
+            }
+        }
+        finished(next, destroy)
+        finished(tunnel, destroy)
     }
     mux(tunnel: CachedTunnel, context: ConnectionContext) {
 

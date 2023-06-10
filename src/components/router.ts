@@ -1,3 +1,4 @@
+import { finished } from "stream";
 import { Component, ComponentOption, ConnectListener, ConnectionContext, Tunnel } from "../types.js";
 import { isIPv4, BlockList } from "net"
 
@@ -73,20 +74,17 @@ export default class Router extends Component {
 
         tunnel.pipe(next).pipe(tunnel)
 
-        next.on("error", (e) => {
-            tunnel.destroy(e)
-            next.destroy()
-        })
+        const destroy = () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+            if (!next.destroyed) {
+                next.destroy()
+            }
+        }
 
-        tunnel.on("error", () => {
-            tunnel.destroy()
-            next.destroy()
-        })
-
-        tunnel.on("close", () => {
-            console.log("tunnel is closed")
-            next.emit("close") 		//emitted when the connection is closed by the server.  (probably)
-        })
+        finished(next, destroy)
+        finished(tunnel, destroy)
     }
 
     check_list(context: ConnectionContext, option: { list: BlockList, pass: string, tag?: string }) {
