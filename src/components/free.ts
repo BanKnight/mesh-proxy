@@ -25,7 +25,7 @@ export default class Free extends Component {
         if (this.options.debug) {
             this.timer = setInterval(() => {
                 console.log("alive_tcp:", this.alive_tcp)  //debugging purpose only
-            }, 3000)
+            }, 10000)
         }
 
         // heapdump.writeSnapshot('./ready.dump', (err) => {

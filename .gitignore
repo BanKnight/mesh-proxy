@@ -109,3 +109,4 @@ dist
 experiment
 config
 temp
+*.heapsnapshot

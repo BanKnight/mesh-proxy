@@ -51,15 +51,38 @@ export class Application {
             this.as_server()
         }
 
-        // let last_count = 0
-        // setInterval(() => {
-        //     let count = Object.keys(this.tunnels).length
-        //     if (last_count != count) {
-        //         console.log("tunnels count", count)
-        //     }
+        if (this.options.debug) {
+            setInterval(() => {
+                const table = []
 
-        //     last_count = count
-        // }, 5000)
+                table.push({
+                    name: "pid",
+                    val: process.pid,
+                })
+
+                const mem = process.memoryUsage()
+
+                for (let name in mem) {
+                    const val = mem[name]
+                    table.push({
+                        name: `memoryUsage/${name}`,
+                        val: val / 1024 / 1024,
+                    })
+                }
+
+                const cpu = process.cpuUsage()
+
+                for (let name in cpu) {
+                    const val = cpu[name]
+                    table.push({
+                        name: `cpuUsage/${name}`,
+                        val: val / 1024 / 1024,
+                    })
+                }
+                console.table(table)
+
+            }, 30000)
+        }
     }
     as_server() {
 
@@ -213,7 +236,7 @@ export class Application {
                 else {
                     socket.ping()
                 }
-            }, 1000)
+            }, 5000)
 
             node.emit("connect")
         });
@@ -630,29 +653,13 @@ export class Application {
         revert.readyState = "open"
         revert.setMaxListeners(Infinity)
 
-        node.tunnels[id] = tunnel
-        that.tunnels[id] = revert
-
-        finished(tunnel, (error) => {
-            delete node.tunnels[id]
-            if (!tunnel.destroyed) {
-                tunnel.destroy(error)
-            }
-        })
-
-        finished(revert, (error) => {
-            delete that.tunnels[id]
-            if (!revert.destroyed) {
-                revert.destroy(error)
-            }
-        })
-
         const tunnels = [
             [tunnel, node],
             [revert, that]
         ]
 
         for (const one of tunnels) {
+
             const tunnel = one[0] as Tunnel
             const node = one[1] as Node
 
@@ -671,9 +678,30 @@ export class Application {
                 node.socket?.write("tunnel::close", id)
                 callback(error)
             }
+
+            node.tunnels[id] = tunnel
+
+            finished(tunnel, (error) => {
+                delete node.tunnels[id]
+                if (!tunnel.destroyed) {
+                    tunnel.destroy(error)
+                }
+            })
         }
 
         tunnel.pipe(revert).pipe(tunnel)
+
+        finished(tunnel, () => {
+            if (!revert.destroyed) {
+                revert.destroy()
+            }
+        })
+
+        finished(revert, () => {
+            if (!tunnel.destroyed) {
+                tunnel.destroy()
+            }
+        })
 
         revert.once("connect", (...args: any[]) => {
             node.socket?.write("tunnel::connection", ...args)
@@ -759,7 +787,6 @@ export class Application {
 
         finished(dst_tunnel, (error) => {
             delete to_component.tunnels[dst_tunnel.id]       //在 component的close事件那里，统一做destroy
-
             if (!dst_tunnel.destroyed) {
                 dst_tunnel.destroy(error)
             }
@@ -771,19 +798,31 @@ export class Application {
             }
             callback()
         }
+        src_tunnel._writev = (chunks, callback) => {
+            for (const chunk of chunks) {
+                dst_tunnel.push(chunk.chunk, chunk.encoding)
+            }
+            callback()
+        }
         dst_tunnel._write = (chunk, encoding, callback) => {
             if (!src_tunnel.push(chunk, encoding)) {
                 dst_tunnel.cork();
             }
             callback()
         }
+        dst_tunnel._writev = (chunks, callback) => {
+            for (const chunk of chunks) {
+                src_tunnel.push(chunk.chunk, chunk.encoding)
+            }
+            callback()
+        }
         src_tunnel._read = () => {
-            if (dst_tunnel.writableCorked) {
+            for (let i = 0; i < dst_tunnel.writableCorked; ++i) {
                 dst_tunnel.uncork()
             }
         };
         dst_tunnel._read = () => {
-            if (src_tunnel.writableCorked) {
+            for (let i = 0; i < src_tunnel.writableCorked; ++i) {
                 src_tunnel.uncork()
             }
         };
